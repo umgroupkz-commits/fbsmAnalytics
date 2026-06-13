@@ -133,6 +133,7 @@ tr:hover td{background:#1a2030}
 <div class="hdr">
   <div class="logo">FBSM · LOTS</div>
   <div class="hdr-title">Управление лотами</div>
+  <div id="sync-status" style="font-size:10px;color:var(--text3);margin-right:8px"></div>
   <div class="hdr-right">
     <button class="btn btn-primary" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button>
   </div>
@@ -554,8 +555,13 @@ tr:hover td{background:#1a2030}
   </div>
 </div></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
+// ===== SUPABASE CONFIG =====
+var SB_URL = 'https://gginvthrgscpnskftfqk.supabase.co';
+var SB_KEY = 'sb_publishable_nfSHxeshvdTDEwkn82AGuQ_xrZiX4-s';
+
 // ===== SETTINGS =====
 const SETTINGS_KEY='fbsm_cfg_v3';
 const DEF_CFG={
@@ -1697,7 +1703,105 @@ function renderAnalytics(){
 }
 
 loadSettings();
-renderLots();
+initFromSupabase();
+
+// ===== SUPABASE SYNC =====
+// Uses Supabase JS client loaded via CDN
+
+function getSB(){
+  if(window._sb) return window._sb;
+  window._sb = window.supabase.createClient(SB_URL, SB_KEY);
+  return window._sb;
+}
+
+async function sbUpsert(table, id, data){
+  try{
+    const {error} = await getSB().from(table).upsert({id:id, data:data, updated_at:new Date().toISOString()});
+    if(error) console.error('sbUpsert error:', error.message);
+  } catch(e){console.error('sbUpsert exception:',e);}
+}
+
+async function sbDelete(table, id){
+  try{
+    const {error} = await getSB().from(table).delete().eq('id', id);
+    if(error) console.error('sbDelete error:', error.message);
+  } catch(e){console.error('sbDelete exception:',e);}
+}
+
+async function sbLoadAll(table){
+  try{
+    const {data, error} = await getSB().from(table).select('id, data, updated_at').order('updated_at', {ascending:false});
+    if(error){console.error('sbLoad error:', error.message);showSyncStatus('Ошибка БД');return null;}
+    return data;
+  } catch(e){console.error('sbLoad exception:',e);showSyncStatus('Нет соединения');return null;}
+}
+
+const _origSave = save;
+function save(){
+  _origSave();
+  lots.forEach(function(l){ sbUpsert('lots', l.id, l); });
+}
+
+const _origSavePromos = savePromos;
+function savePromos(){
+  _origSavePromos();
+  promos.forEach(function(p){ sbUpsert('promos', p.id, p); });
+}
+
+const _origDelLot = delLot;
+function delLot(id){
+  if(!confirm('Удалить лот?')) return;
+  sbDelete('lots', id);
+  lots = lots.filter(function(l){return l.id !== id;});
+  localStorage.setItem('fbsm_lots_v5', JSON.stringify(lots));
+  closeModal('modal-detail');
+  renderLots();
+}
+
+async function initFromSupabase(){
+  showSyncStatus('⟳ Синхронизация...');
+  const [lotsData, promosData] = await Promise.all([
+    sbLoadAll('lots'),
+    sbLoadAll('promos')
+  ]);
+
+  if(lotsData && lotsData.length > 0){
+    const localLots = JSON.parse(localStorage.getItem('fbsm_lots_v5')||'[]');
+    const merged = {};
+    localLots.forEach(function(l){ merged[l.id] = l; });
+    lotsData.forEach(function(row){
+      var sbLot = row.data;
+      var local = merged[row.id];
+      if(!local || new Date(row.updated_at) >= new Date(local.updatedAt||0)){
+        merged[row.id] = sbLot;
+      }
+    });
+    lots = Object.values(merged).sort(function(a,b){
+      return new Date(b.createdAt||0) - new Date(a.createdAt||0);
+    });
+    localStorage.setItem('fbsm_lots_v5', JSON.stringify(lots));
+    // Upload local-only lots
+    var sbIds = new Set(lotsData.map(function(r){return r.id;}));
+    lots.forEach(function(l){ if(!sbIds.has(l.id)) sbUpsert('lots', l.id, l); });
+  }
+
+  if(promosData && promosData.length > 0){
+    const localPromos = JSON.parse(localStorage.getItem('fbsm_promos_v1')||'[]');
+    const merged = {};
+    localPromos.forEach(function(p){ merged[p.id] = p; });
+    promosData.forEach(function(row){ merged[row.id] = row.data; });
+    promos = Object.values(merged);
+    localStorage.setItem('fbsm_promos_v1', JSON.stringify(promos));
+  }
+
+  showSyncStatus('');
+  renderLots();
+}
+
+function showSyncStatus(msg){
+  var el = document.getElementById('sync-status');
+  if(el) el.textContent = msg;
+}
 
 </script>
 </body>
