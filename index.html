@@ -380,6 +380,9 @@ tr:hover td{background:#1a2030}
         <label style="font-size:10px">Скидка ниже себеса</label>
         <div style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="cfg-allowBelowCost" style="width:14px;height:14px"><label for="cfg-allowBelowCost" style="font-size:10px;color:var(--text2)">если лот окупился</label></div>
                 <label>Цель прибыли (%)</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-profitTarget" type="number" min="0" max="500" style="width:55px"></div>
+        <label style="font-size:10px">«Маленький остаток» ≤</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-smallStock" type="number" min="1" max="50" style="width:55px"> шт</div>
+        <label style="font-size:10px">Не скидывать группу A</label>
+        <div style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="cfg-skipA" style="width:14px;height:14px"><label for="cfg-skipA" style="font-size:10px;color:var(--text2)">продаётся сама</label></div>
 
       </div>
     </div>
@@ -465,7 +468,9 @@ const DEF_CFG={
   discRates:[0,10,20,30,40,50,60,70],
   noSaleDiscRates:[0,15,25,35,50],
   noSaleAgeBreaks:[4,8,12,16],
-  profitTargetPct:60
+  profitTargetPct:60,
+  smallStockQty:5,
+  skipDiscountOnA:true
 };
 let CFG=Object.assign({},DEF_CFG);
 function loadSettings(){try{const s=localStorage.getItem(SETTINGS_KEY);if(s)CFG=Object.assign({},DEF_CFG,JSON.parse(s));}catch(e){}}
@@ -487,6 +492,8 @@ function saveSettings(){
   CFG.noSaleDiscRates=[];
   for(var i=0;i<5;i++) CFG.noSaleDiscRates.push(parseInt(document.getElementById('cfg-noSaleDisc'+i).value)||0);
   var pt=document.getElementById('cfg-profitTarget');if(pt)CFG.profitTargetPct=parseInt(pt.value)||60;
+  var ss=document.getElementById('cfg-smallStock');if(ss)CFG.smallStockQty=parseInt(ss.value)||5;
+  var sa=document.getElementById('cfg-skipA');if(sa)CFG.skipDiscountOnA=sa.checked;
   localStorage.setItem(SETTINGS_KEY,JSON.stringify(CFG));
   closeModal('modal-settings');
   if(activeLotId) renderDetail();
@@ -502,6 +509,8 @@ function fillSettingsForm(){
   for(var i=0;i<7;i++){var el=document.getElementById('cfg-disc'+i);if(el)el.value=(CFG.discRates||[])[i+1]||0;}
   for(var i=0;i<5;i++){var el=document.getElementById('cfg-noSaleDisc'+i);if(el)el.value=(CFG.noSaleDiscRates||[])[i]||0;}
   var pt=document.getElementById('cfg-profitTarget');if(pt)pt.value=CFG.profitTargetPct||60;
+  var ss=document.getElementById('cfg-smallStock');if(ss)ss.value=CFG.smallStockQty||5;
+  var sa=document.getElementById('cfg-skipA');if(sa)sa.checked=CFG.skipDiscountOnA!==false;
 }
 function openSettings(){fillSettingsForm();document.getElementById('modal-settings').style.display='flex';}
 
@@ -513,7 +522,7 @@ let updDraft={lotId:null,stock:null,price:null,sales:null};
 let activeLotId=null;
 let activePromoId=null;
 let detailSort={col:null,dir:-1};
-let detailFilters={abcd:new Set(),xyz:new Set(),age:new Set()};
+let detailFilters={abcd:new Set(),age:new Set()};
 let detailMode='abcd_rev';
 let showABCDXYZ=false;
 let activeDetailTab='dtab-table';
@@ -683,35 +692,8 @@ function calcABCD(items,field){
   });
   return res;
 }
-function calcABCDAvg(items){
-  var total=items.reduce(function(s,i){return s+(i.avgPerMonth||0);},0);
-  if(!total)return Object.fromEntries(items.map(function(i){return[i.id,'D'];}));
-  var sorted=items.slice().sort(function(a,b){return(b.avgPerMonth||0)-(a.avgPerMonth||0);});
-  var cum=0;var res={};
-  sorted.forEach(function(i){
-    cum+=(i.avgPerMonth||0);var p=cum/total*100;
-    res[i.id]=p<=CFG.abcdA?'A':p<=CFG.abcdB?'B':p<=CFG.abcdC?'C':'D';
-  });
-  return res;
-}
-function calcXYZ(items){
-  var res={};
-  items.forEach(function(i){
-    var wks=(i.weeks||[]).map(function(w){return w.qty||0;});
-    if(wks.length<2){res[i.id]='Z';return;}
-    var mean=wks.reduce(function(s,v){return s+v;},0)/wks.length;
-    if(mean===0){res[i.id]='Z';return;}
-    var std=Math.sqrt(wks.reduce(function(s,v){return s+Math.pow(v-mean,2);},0)/wks.length);
-    var cv=std/mean;
-    res[i.id]=cv<0.3?'X':cv<0.7?'Y':'Z';
-  });
-  return res;
-}
 function getABCDMap(items){
-  return detailMode==='abcd_qty'?calcABCD(items,'soldQty'):
-    detailMode==='abcd_avg'?calcABCDAvg(items):
-    detailMode==='abcd_gp'?calcABCD(items,'grossProfit'):
-    calcABCD(items,'soldRev');
+  return detailMode==='abcd_qty'?calcABCD(items,'soldQty'):calcABCD(items,'soldRev');
 }
 function enrichItems(items,lotDate){
   var now=new Date();
@@ -731,12 +713,45 @@ function enrichItems(items,lotDate){
 
 
 // ===== DISCOUNT ENGINE =====
+
+// Обучение на акциях: средний коэффициент ускорения по факту прошедших акций
+function getLearnedBoost(discPct){
+  // Собираем результаты завершённых акций со всех лотов
+  var samples=[];
+  promos.forEach(function(p){
+    if(!p.results||!p.results.byItem)return;
+    var days=p.unlimited?30:(p.endDate&&p.startDate?Math.max(1,(new Date(p.endDate)-new Date(p.startDate))/86400000):14);
+    var weeks=days/7;
+    p.items.forEach(function(pi){
+      var r=p.results.byItem[pi.itemId];
+      if(!r||!r.qty)return;
+      // Найдём товар чтобы узнать его обычный темп
+      var lot=lots.find(function(x){return x.id===p.lotId;});
+      if(!lot)return;
+      var item=lot.items.find(function(i){return i.id===pi.itemId;});
+      if(!item)return;
+      var normalWeekly=(item.avgPerMonth||0)/4;
+      if(normalWeekly<=0)return;
+      var promoWeekly=r.qty/weeks;
+      var actualBoost=promoWeekly/normalWeekly;
+      if(actualBoost>0&&actualBoost<20){samples.push({disc:pi.discPct||p.discPct||0,boost:actualBoost});}
+    });
+  });
+  if(samples.length<3)return null; // мало данных — используем формулу
+  // Берём акции с похожей скидкой (±15%)
+  var similar=samples.filter(function(s){return Math.abs(s.disc-discPct)<=15;});
+  var pool=similar.length>=2?similar:samples;
+  var avg=pool.reduce(function(s,x){return s+x.boost;},0)/pool.length;
+  return{boost:avg,n:pool.length};
+}
+
 // Оценка срока акции и сколько продастся за период
 function estimatePromoPeriod(item,discPct){
   var remain=Math.max((item.qty||0)-(item.soldQty||0),0);
   var avgWeek=(item.avgPerMonth||0)/4;
-  // Скидка ускоряет продажи: множитель растёт со скидкой
-  var boost=1+(discPct/100)*2; // -30% -> x1.6, -50% -> x2.0
+  // Скидка ускоряет продажи. Если есть история акций — берём фактический коэффициент
+  var learned=getLearnedBoost(discPct);
+  var boost=learned?learned.boost:(1+(discPct/100)*2); // факт или формула
   var boostedWeekly=avgWeek*boost;
   // Рекомендуемый срок: максимум 2 недели (14 дней), но если остаток маленький - меньше
   var maxDays=14;
@@ -754,12 +769,15 @@ function estimatePromoPeriod(item,discPct){
     days=14;
     willSell=Math.min(willSellIn14,remain);
   }
-  return{days:days,willSell:willSell};
+  return{days:days,willSell:willSell,learned:learned?learned.n:0};
 }
 
 function calcRecommendedDiscount(item,lotDate,lotRecovered){
   var remain=Math.max((item.qty||0)-(item.soldQty||0),0);
-  if(remain<=0)return{disc:0,reason:'Продано',escalate:false,discPrice:0,monthsLeft:null,forecast:null,isPromoCandidate:false};
+  if(remain<=0)return{disc:0,reason:'Продано',escalate:false,discPrice:0,monthsLeft:null,forecast:null,isPromoCandidate:false,isLiquidate:false};
+  // Маленький остаток + нет продаж = слить, а не акция
+  var smallStock=CFG.smallStockQty||5;
+  var isLiquidate=false;
   var monthsLeft=null;
   if(CFG.seasonEnd){
     var end=new Date(CFG.seasonEnd);var now=new Date();
@@ -774,6 +792,12 @@ function calcRecommendedDiscount(item,lotDate,lotRecovered){
     recDisc=rates[Math.min(idx,rates.length-1)]||0;
     reason=recDisc>0?('Нет продаж уже '+weeks+' нед.'):'Новинка — пока не трогаем';
     if(recDisc>=30)isPromoCandidate=true;
+    // Маленький остаток без продаж — слить, не делать акцию
+    if(remain<=smallStock&&recDisc>0&&weeks>=(CFG.age2||8)){
+      isLiquidate=true;isPromoCandidate=false;
+      reason='Мало осталось ('+remain+' шт), не продаётся '+weeks+' нед — слить остаток';
+      if(lotRecovered){recDisc=Math.max(recDisc,50);}
+    }
   } else if(monthsLeft!==null&&item.avgPerMonth>0){
     var forecast=remain/item.avgPerMonth;
     var ratio=monthsLeft>0?(forecast/monthsLeft):99;
@@ -783,7 +807,7 @@ function calcRecommendedDiscount(item,lotDate,lotRecovered){
     recDisc=rates2[Math.min(idx2,rates2.length-1)]||0;
     if(recDisc>0){
       reason='Остаток распродастся за '+forecast.toFixed(1)+' мес, до конца сезона '+monthsLeft.toFixed(1)+' мес — отстаёт в '+ratio.toFixed(1)+' раза';
-      if(item._abcd==='D'&&item._xyz==='Z'){recDisc=Math.min(recDisc+10,90);reason+=' · слабый нестабильный товар (+10%)';}
+
       if(recDisc>=30)isPromoCandidate=true;
     }
   }
@@ -798,13 +822,19 @@ function calcRecommendedDiscount(item,lotDate,lotRecovered){
     if(recDisc>maxDisc){finalDisc=maxDisc;priceWarning='Ограничено себестоимостью: макс. '+maxDisc+'%';}
   }
   var forecastVal=(item.avgPerMonth>0&&item.soldQty>0)?Math.max(remain/item.avgPerMonth,0):null;
-  return{disc:finalDisc,recDisc:recDisc,reason:reason,escalate:escalate,belowCost:belowCost,priceWarning:priceWarning,discPrice:Math.round(item.price*(1-finalDisc/100)),monthsLeft:monthsLeft,forecast:forecastVal,isPromoCandidate:isPromoCandidate};
+  // Не предлагать скидку на A-позиции по выручке (продаются сами) - если не слив
+  var skipA=false;
+  if(CFG.skipDiscountOnA!==false&&item._abcd==='A'&&!isLiquidate&&finalDisc>0&&finalDisc<30){
+    skipA=true;
+  }
+  if(skipA){return{disc:0,recDisc:recDisc,reason:'Группа A — продаётся сама, скидка не нужна',escalate:false,belowCost:false,priceWarning:'',discPrice:item.price,monthsLeft:monthsLeft,forecast:forecastVal,isPromoCandidate:false,isLiquidate:false,skipA:true};}
+  return{disc:finalDisc,recDisc:recDisc,reason:reason,escalate:escalate,belowCost:belowCost,priceWarning:priceWarning,discPrice:Math.round(item.price*(1-finalDisc/100)),monthsLeft:monthsLeft,forecast:forecastVal,isPromoCandidate:isPromoCandidate,isLiquidate:isLiquidate,skipA:false};
 }
 function applyDiscount(itemId){
   if(!activeLotId)return;
   var l=lots.find(function(x){return x.id===activeLotId;});if(!l)return;
   var item=l.items.find(function(i){return i.id===itemId;});if(!item)return;
-  enrichItems([item],l.date);item._abcd=getABCDMap(l.items)[item.id]||'D';item._xyz=calcXYZ(l.items)[item.id]||'Z';
+  enrichItems([item],l.date);item._abcd=getABCDMap(l.items)[item.id]||'D';
   var m=metrics(l);var rec=calcRecommendedDiscount(item,l.date,m.recovery>=100);
   if(rec.disc===0){alert('Скидка не нужна');return;}
   if(!item.discountHistory)item.discountHistory=[];
@@ -821,8 +851,7 @@ function removeDiscount(itemId){
 function applyAllDiscounts(lotId){
   var l=lots.find(function(x){return x.id===lotId;});if(!l)return;
   enrichItems(l.items,l.date);
-  var abcdMap=getABCDMap(l.items);var xyzMap=calcXYZ(l.items);
-  l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';i._xyz=xyzMap[i.id]||'Z';});
+  var abcdMap=getABCDMap(l.items);l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';});
   var m=metrics(l);var applied=0;
   l.items.forEach(function(i){
     var rec=calcRecommendedDiscount(i,l.date,m.recovery>=100);
@@ -1158,7 +1187,7 @@ function buildAdvisor(l,m){
     if(forecastMonths!==null){
       if(forecastMonths>monthsLeft){
         adv+='Остаток '+m.remainQty+' шт продастся за <span style="color:var(--red)">'+fmtD(forecastMonths)+' мес</span> — дольше остатка сезона ('+fmtD(monthsLeft)+' мес). ';
-        adv+='<b>Нужны скидки и акции</b> чтобы ускорить. Проверьте вкладку «Скидки/Акции» — там '+l.items.filter(function(i){i._abcd=getABCDMap(l.items)[i.id];i._xyz=calcXYZ(l.items)[i.id];var rec=calcRecommendedDiscount(i,l.date,false);return rec.disc>0;}).length+' позиций требуют внимания.';
+        adv+='<b>Нужны скидки и акции</b> чтобы ускорить. Проверьте вкладку «Скидки/Акции» — там '+l.items.filter(function(i){i._abcd=getABCDMap(l.items)[i.id];var rec=calcRecommendedDiscount(i,l.date,false);return rec.disc>0;}).length+' позиций требуют внимания.';
       } else {
         adv+='Остаток продастся за '+fmtD(forecastMonths)+' мес — укладываемся в сезон ('+fmtD(monthsLeft)+' мес). Идём по графику.';
       }
@@ -1204,7 +1233,7 @@ function renderLots(){
 
 // ===== DETAIL =====
 function openDetail(id){
-  activeLotId=id;detailFilters={abcd:new Set(),xyz:new Set(),age:new Set()};detailMode='abcd_rev';
+  activeLotId=id;detailFilters={abcd:new Set(),age:new Set()};detailMode='abcd_rev';
   selectedItems=new Set();lastCheckedIdx=null;showABCDXYZ=false;activeDetailTab='dtab-table';
   detailSort={col:'_abcd',dir:1};
   renderDetail();
@@ -1215,23 +1244,21 @@ function renderDetail(){
   enrichItems(l.items,l.date);
   var m=metrics(l);
   var abcdMap=getABCDMap(l.items);
-  var xyzMap=calcXYZ(l.items);
-  l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';i._xyz=xyzMap[i.id]||'Z';});
+  l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';});
 
   var abcdCnt={A:0,B:0,C:0,D:0};
   l.items.forEach(function(i){abcdCnt[abcdMap[i.id]||'D']++;});
-  var xyzCnt={X:0,Y:0,Z:0};
-  l.items.forEach(function(i){xyzCnt[xyzMap[i.id]||'Z']++;});
+
   var totalRev=l.items.reduce(function(s,i){return s+(i.soldRev||0);},0);
   var totalGP=l.items.reduce(function(s,i){return s+(i.grossProfit||0);},0);
 
   // Filter
   var filtered=l.items.slice();
   if(detailFilters.abcd.size>0)filtered=filtered.filter(function(i){return detailFilters.abcd.has(abcdMap[i.id]||'D');});
-  if(detailFilters.xyz.size>0)filtered=filtered.filter(function(i){return detailFilters.xyz.has(xyzMap[i.id]||'Z');});
+  
   if(detailFilters.age.size>0)filtered=filtered.filter(function(i){var w=i.weeksOnShelf||0;var z=w<=CFG.age1?'ok':w<=CFG.age2?'w':w<=CFG.age3?'r':'c';return detailFilters.age.has(z);});
   if(detailSort.col){var col=detailSort.col;var dir=detailSort.dir;
-    var abcdField=detailMode==='abcd_qty'?'soldQty':detailMode==='abcd_avg'?'avgPerMonth':detailMode==='abcd_gp'?'grossProfit':'soldRev';
+    var abcdField=detailMode==='abcd_qty'?'soldQty':'soldRev';
     filtered.sort(function(a,b){
       if(col==='_abcd'){
         // Сортировка по группе ABCD: сначала по букве, потом внутри группы по показателю анализа (по убыванию)
@@ -1241,24 +1268,20 @@ function renderDetail(){
         var ma=a[abcdField]||0;var mb=b[abcdField]||0;
         return mb-ma;
       }
-      if(col==='_xyz'){
-        var xa=xyzMap[a.id]||'Z';var xb=xyzMap[b.id]||'Z';
-        if(xa!==xb)return dir*(xa>xb?1:-1);
-        var ma2=a.avgPerMonth||0;var mb2=b.avgPerMonth||0;
-        return mb2-ma2;
-      }
+
       var av=a[col]!=null?a[col]:-Infinity;var bv=b[col]!=null?b[col]:-Infinity;
       return dir*(av>bv?1:av<bv?-1:0);
     });
   }
 
-  var abcdModeHint=detailMode==='abcd_qty'?'группы по проданным штукам':detailMode==='abcd_avg'?'группы по среднемесячным продажам':detailMode==='abcd_gp'?'группы по валовой прибыли':'группы по выручке';
+  var abcdModeHint=detailMode==='abcd_qty'?'группы по проданным штукам':'группы по выручке';
   var staleItems=l.items.filter(function(i){return i.soldQty===0&&(i.weeksOnShelf||0)>CFG.age1;});
   var frozenCost=staleItems.reduce(function(s,i){return s+(i.costPer||0)*i.qty;},0);
   var lotRecovered=m.recovery>=100;
   var discRecs={};l.items.forEach(function(i){discRecs[i.id]=calcRecommendedDiscount(i,l.date,lotRecovered);});
-  var discItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].disc>0&&!discRecs[i.id].isPromoCandidate&&!(i.activePromos||[]).length;});
-  var promoItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].isPromoCandidate&&!(i.activePromos||[]).length;});
+  var liquidateItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].isLiquidate&&!(i.activePromos||[]).length;});
+  var discItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].disc>0&&!discRecs[i.id].isPromoCandidate&&!discRecs[i.id].isLiquidate&&!(i.activePromos||[]).length;});
+  var promoItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].isPromoCandidate&&!discRecs[i.id].isLiquidate&&!(i.activePromos||[]).length;});
   var activeDiscItems=l.items.filter(function(i){return i.hasDiscount&&i.discountPct>0;});
   var activePromos=promos.filter(function(p){return p.lotId===l.id&&p.status==='active';});
 
@@ -1267,21 +1290,17 @@ function renderDetail(){
   // Chips
   var chips='';
   ['A','B','C','D'].forEach(function(x){chips+='<span class="fchip fchip-'+x+(detailFilters.abcd.has(x)?' active':'')+'" onclick="toggleFilter(\'abcd\',\''+x+'\')">'+x+' ('+abcdCnt[x]+')</span>';});
-  if(showABCDXYZ){
-    chips+='<span style="color:var(--text3);font-size:10px;align-self:center;margin:0 3px">·</span>';
-    ['X','Y','Z'].forEach(function(x){var xlbl=x==='X'?'X·ровно':x==='Y'?'Y·колебл':'Z·случайно';chips+='<span class="fchip fchip-'+x+(detailFilters.xyz.has(x)?' active':'')+'" onclick="toggleFilter(\'xyz\',\''+x+'\')" title="'+(x==='X'?'Стабильный спрос — продаётся ровно':x==='Y'?'Колеблющийся спрос':'Нерегулярный, случайный спрос')+'">'+xlbl+' ('+xyzCnt[x]+')</span>';});
-  }
   chips+='<span style="color:var(--text3);font-size:10px;align-self:center;margin:0 3px">·</span>';
   [['ok','🟢<'+CFG.age1],['w','🟡'+CFG.age1+'-'+CFG.age2],['r','🟠'+CFG.age2+'-'+CFG.age3],['c','🔴>'+CFG.age3]].forEach(function(pair){
     chips+='<span class="fchip '+(pair[0]==='ok'?'fchip-ok':pair[0]==='w'?'fchip-warn':'fchip-crit')+(detailFilters.age.has(pair[0])?' active':'')+'" onclick="toggleFilter(\'age\',\''+pair[0]+'\')">'+pair[1]+'н</span>';
   });
-  if(detailFilters.abcd.size+detailFilters.xyz.size+detailFilters.age.size>0)chips+='<button class="btn btn-ghost btn-sm" onclick="clearFilters()" style="margin-left:4px">✕</button>';
+  if(detailFilters.abcd.size+detailFilters.age.size>0)chips+='<button class="btn btn-ghost btn-sm" onclick="clearFilters()" style="margin-left:4px">✕</button>';
 
   // Table rows
   var filteredIds=filtered.map(function(i){return i.id;});
   var tableRows='';
   filtered.forEach(function(item,idx){
-    var abc=abcdMap[item.id]||'D';var xyz=xyzMap[item.id]||'Z';
+    var abc=abcdMap[item.id]||'D';
     var mgColor=item.mgUnit>=30?'var(--green)':item.mgUnit>15?'var(--yellow)':'var(--red)';
     var remain=Math.max(item.qty-(item.soldQty||0),0);
     var spark=getSparkline(item.weeks);
@@ -1297,6 +1316,10 @@ function renderDetail(){
       });
     } else if(item.hasDiscount&&item.discountPct>0){
       discCell+='<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span class="chip chip-disc">−'+item.discountPct+'% пост.</span><span style="font-size:9px;color:var(--text2);font-family:var(--mono)">'+fmt(item.discountPrice)+' ₸</span><button class="btn btn-ghost btn-sm" style="font-size:9px;padding:1px 4px" onclick="removeDiscount(\''+item.id+'\')">✕</button></div>';
+    } else if(drec&&drec.isLiquidate){
+      discCell+='<span style="background:#3d1a1a;color:var(--red);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono);cursor:pointer" onclick="applyDiscount(\''+item.id+'\')" title="'+drec.reason+'">🔥 слить −'+drec.disc+'%</span>';
+    } else if(drec&&drec.skipA){
+      discCell+='<span style="font-size:9px;color:var(--green)" title="'+drec.reason+'">A · сама</span>';
     } else if(drec&&drec.disc>0){
       var c2=drec.disc>=50?'var(--red)':drec.disc>=30?'var(--orange)':'var(--yellow)';
       var bg2=drec.disc>=50?'#3d1a1a':drec.disc>=30?'#3d2810':'#2d2510';
@@ -1304,7 +1327,7 @@ function renderDetail(){
       discCell+='<span style="background:'+bg2+';color:'+c2+';padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono);cursor:pointer" onclick="'+(drec.isPromoCandidate?'openPromoPickerFor([\''+item.id+'\'])':'applyDiscount(\''+item.id+'\')')+'" title="'+drec.reason+'">'+btnLabel+' −'+drec.disc+'%</span>';
     }
     discCell+='</td>';
-    var abcdxyzCells='<td style="text-align:center"><span class="badge badge-'+abc+'">'+abc+'</span></td>'+(showABCDXYZ?'<td style="text-align:center"><span class="badge badge-'+xyz+'">'+xyz+'</span></td>':'');
+    var abcdxyzCells='<td style="text-align:center"><span class="badge badge-'+abc+'">'+abc+'</span></td>';
     tableRows+='<tr>'+
       '<td class="checkbox-cell"><input type="checkbox" class="row-check" data-id="'+item.id+'" data-idx="'+idx+'" '+checked+' onclick="onRowCheck(event,'+idx+')"></td>'+
       '<td style="max-width:200px"><div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+item.name+'</div><div style="margin-top:2px">'+labels+'</div></td>'+
@@ -1334,7 +1357,7 @@ function renderDetail(){
     '</div>';
 
   // === Build discount tab ===
-  var discTabHTML=buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,discRecs);
+  var discTabHTML=buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,discRecs,liquidateItems);
 
   var netColor=m.netProfit>=0?'var(--green)':'var(--red)';
 
@@ -1365,18 +1388,16 @@ function renderDetail(){
     '<div class="detail-panel active" id="dtab-table">'+
     '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center">'+
     '<div class="mode-btns">'+
-    '<button class="mode-btn'+(detailMode==='abcd_rev'?' active':'')+'" onclick="setDetailMode(\'abcd_rev\')">ABCD ₸</button>'+
-    '<button class="mode-btn'+(detailMode==='abcd_qty'?' active':'')+'" onclick="setDetailMode(\'abcd_qty\')">ABCD шт</button>'+
-    '<button class="mode-btn'+(detailMode==='abcd_avg'?' active':'')+'" onclick="setDetailMode(\'abcd_avg\')">ABCD ср/мес</button>'+
-    '<button class="mode-btn'+(detailMode==='abcd_gp'?' active':'')+'" onclick="setDetailMode(\'abcd_gp\')">ABCD прибыль</button>'+
+    '<button class="mode-btn'+(detailMode==='abcd_rev'?' active':'')+'" onclick="setDetailMode(\'abcd_rev\')">ABCD по ₸</button>'+
+    '<button class="mode-btn'+(detailMode==='abcd_qty'?' active':'')+'" onclick="setDetailMode(\'abcd_qty\')">ABCD по штукам</button>'+
     '</div>'+
     '<span style="font-size:9px;color:var(--text3)" title="ABCD группирует позиции: A — дают первые 50% показателя, B — до 80%, C — до 95%, D — хвост. Клик по колонке ABCD сортирует по группам, внутри группы — по показателю.">'+abcdModeHint+'</span>'+
-    '<button class="btn '+(showABCDXYZ?'btn-primary':'btn-ghost')+' btn-sm" onclick="toggleABCDXYZ()" title="XYZ — стабильность спроса. X — продаётся ровно каждую неделю. Y — с колебаниями. Z — нерегулярно, случайно.">📊 '+(showABCDXYZ?'Скрыть XYZ':'Показать XYZ (стабильность)')+'</button>'+
+    
     '<div style="font-size:10px;color:var(--text3);margin-left:auto">'+filtered.length+' из '+l.items.length+'</div></div>'+
     '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">'+chips+'</div>'+
     bulkBar+
     '<div style="overflow-x:auto"><table><thead>'+
-    '<tr><th class="checkbox-cell"></th>'+thS('name','Наименование')+thS('qty','Ост.')+thS('price','Цена')+thS('costPer','Себест.')+thS('mgUnit','Маржа%')+thS('soldQty','Прод.')+thS('soldRev','Выр.₸')+thS('grossProfit','Вал.пр.₸')+thS('avgPerMonth','Ср/мес')+thS('coverMonths','Запас')+thS('weeksOnShelf','Возр.')+'<th>График</th>'+thS('_abcd','ABCD')+(showABCDXYZ?thS('_xyz','XYZ'):'')+'<th>🏷</th></tr>'+
+    '<tr><th class="checkbox-cell"></th>'+thS('name','Наименование')+thS('qty','Ост.')+thS('price','Цена')+thS('costPer','Себест.')+thS('mgUnit','Маржа%')+thS('soldQty','Прод.')+thS('soldRev','Выр.₸')+thS('grossProfit','Вал.пр.₸')+thS('avgPerMonth','Ср/мес')+thS('coverMonths','Запас')+thS('weeksOnShelf','Возр.')+'<th>График</th>'+thS('_abcd','ABCD')+'<th>🏷</th></tr>'+
     '</thead><tbody>'+tableRows+'</tbody></table></div></div>'+
 
     '<div class="detail-panel" id="dtab-disc">'+discTabHTML+'</div>'+
@@ -1410,14 +1431,34 @@ function buildTopTab(l,totalRev,totalGP){
 
 
 // ===== DISC TAB =====
-function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,discRecs){
+function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,discRecs,liquidateItems){
   var html='';
   if(!CFG.seasonEnd) html+='<div class="rec-box" style="background:#3d2810;border:1px solid var(--orange);color:var(--orange)"><b>⚠ Укажите дату конца сезона в настройках ⚙</b></div>';
   html+='<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
     '<div class="stat-card"><div class="stat-lbl">Пост. скидки</div><div class="stat-val" style="color:var(--yellow)">'+discItems.length+'</div><div class="stat-sub">'+activeDiscItems.length+' активных</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">На акцию</div><div class="stat-val" style="color:var(--orange)">'+promoItems.length+'</div></div>'+
+    ((liquidateItems&&liquidateItems.length)?'<div class="stat-card" style="border-color:var(--red)"><div class="stat-lbl" style="color:var(--red)">🔥 Слить</div><div class="stat-val" style="color:var(--red)">'+liquidateItems.length+'</div></div>':'')+
     '<div class="stat-card"><div class="stat-lbl">Активных акций</div><div class="stat-val" style="color:var(--teal)">'+activePromos.length+'</div></div>'+
     '</div>';
+  // Liquidate section
+  if(liquidateItems&&liquidateItems.length>0){
+    html+='<div style="background:#3d1a1a;border:1px solid var(--red);border-radius:8px;padding:10px;margin-bottom:10px">'+
+      '<div style="font-size:11px;font-weight:600;color:var(--red);margin-bottom:4px">🔥 Слить остаток ('+liquidateItems.length+' поз.)</div>'+
+      '<div style="font-size:10px;color:var(--text2);margin-bottom:8px">Маленький остаток, давно не продаётся. Акция бессмысленна — поставьте большую скидку и закройте позицию. '+(m.recovery>=100?'Лот окупился — можно ниже себестоимости.':'')+'</div>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Себест.</th><th>Возр.</th><th>Скидка</th><th>Цена со скидкой</th><th>Статус</th></tr></thead><tbody>';
+    liquidateItems.forEach(function(item){
+      var drec=discRecs[item.id];
+      var remain=Math.max(item.qty-(item.soldQty||0),0);
+      var below=drec.discPrice<(item.costPer||0);
+      html+='<tr><td style="font-weight:500">'+item.name+'</td><td class="mono">'+remain+'</td><td class="mono">'+fmt(item.price)+'</td>'+
+        '<td class="mono" style="color:var(--text2)">'+fmt(item.costPer)+'</td>'+
+        '<td class="mono '+getAgeClass(item.weeksOnShelf||0)+'">'+(item.weeksOnShelf||0)+'н</td>'+
+        '<td><span style="background:#3d1a1a;color:var(--red);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono)">−'+drec.disc+'%</span></td>'+
+        '<td class="mono" style="color:'+(below?'var(--red)':'var(--text)')+'">'+fmt(drec.discPrice)+' ₸'+(below?' ⚠':'')+'</td>'+
+        '<td>'+(item.hasDiscount&&item.discountPct>0?'<span class="chip chip-disc">✓ −'+item.discountPct+'%</span><button class="btn btn-ghost btn-sm" style="font-size:9px;padding:1px 4px;margin-left:4px" onclick="removeDiscount(\''+item.id+'\')">✕</button>':'<button class="btn btn-danger btn-sm" onclick="applyDiscount(\''+item.id+'\')">Слить</button>')+'</td></tr>';
+    });
+    html+='</tbody></table></div></div>';
+  }
   // Promo candidates
   if(promoItems.length>0){
     html+='<div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:10px">'+
@@ -1436,7 +1477,7 @@ function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,disc
         '<td class="mono '+getAgeClass(item.weeksOnShelf||0)+'">'+(item.weeksOnShelf>0?item.weeksOnShelf+'н':'—')+'</td>'+
         '<td><span style="background:#3d2810;color:var(--orange);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono)">−'+drec.disc+'%</span></td>'+
         '<td class="mono" style="color:var(--accent)">'+promoPeriod.days+' дн</td>'+
-        '<td class="mono" style="color:var(--green)">~'+promoPeriod.willSell+' шт</td>'+
+        '<td class="mono" style="color:var(--green)">~'+promoPeriod.willSell+' шт'+(promoPeriod.learned>0?'<span style="font-size:8px;color:var(--accent)" title="Прогноз по факту '+promoPeriod.learned+' прошлых акций"> ✓факт</span>':'')+'</td>'+
         '<td style="font-size:10px;color:var(--text2)">'+drec.reason+'</td>'+
         '<td><button class="btn btn-warn btn-sm" onclick="openPromoPickerFor([\''+item.id+'\'])">→ В акцию</button></td></tr>';
     });
@@ -1495,18 +1536,18 @@ function sortDetail(col){if(detailSort.col===col)detailSort.dir*=-1;else{detailS
 function setDetailMode(mode){detailMode=mode;renderDetail();}
 function toggleABCDXYZ(){showABCDXYZ=!showABCDXYZ;renderDetail();}
 function toggleFilter(type,val){if(detailFilters[type].has(val))detailFilters[type].delete(val);else detailFilters[type].add(val);renderDetail();}
-function clearFilters(){detailFilters={abcd:new Set(),xyz:new Set(),age:new Set()};renderDetail();}
+function clearFilters(){detailFilters={abcd:new Set(),age:new Set()};renderDetail();}
 
 // ===== CHECKBOX SELECTION (all/none/shift/ctrl) =====
 function getFilteredIds(){
   var l=lots.find(function(x){return x.id===activeLotId;});if(!l)return[];
-  var abcdMap=getABCDMap(l.items);var xyzMap=calcXYZ(l.items);
+  var abcdMap=getABCDMap(l.items);
   var filtered=l.items.slice();
   if(detailFilters.abcd.size>0)filtered=filtered.filter(function(i){return detailFilters.abcd.has(abcdMap[i.id]||'D');});
-  if(detailFilters.xyz.size>0)filtered=filtered.filter(function(i){return detailFilters.xyz.has(xyzMap[i.id]||'Z');});
+  
   if(detailFilters.age.size>0)filtered=filtered.filter(function(i){var w=i.weeksOnShelf||0;var z=w<=CFG.age1?'ok':w<=CFG.age2?'w':w<=CFG.age3?'r':'c';return detailFilters.age.has(z);});
   if(detailSort.col){var col=detailSort.col;var dir=detailSort.dir;
-    var abcdField=detailMode==='abcd_qty'?'soldQty':detailMode==='abcd_avg'?'avgPerMonth':detailMode==='abcd_gp'?'grossProfit':'soldRev';
+    var abcdField=detailMode==='abcd_qty'?'soldQty':'soldRev';
     filtered.sort(function(a,b){
       if(col==='_abcd'){
         // Сортировка по группе ABCD: сначала по букве, потом внутри группы по показателю анализа (по убыванию)
@@ -1516,12 +1557,7 @@ function getFilteredIds(){
         var ma=a[abcdField]||0;var mb=b[abcdField]||0;
         return mb-ma;
       }
-      if(col==='_xyz'){
-        var xa=xyzMap[a.id]||'Z';var xb=xyzMap[b.id]||'Z';
-        if(xa!==xb)return dir*(xa>xb?1:-1);
-        var ma2=a.avgPerMonth||0;var mb2=b.avgPerMonth||0;
-        return mb2-ma2;
-      }
+
       var av=a[col]!=null?a[col]:-Infinity;var bv=b[col]!=null?b[col]:-Infinity;
       return dir*(av>bv?1:av<bv?-1:0);
     });
@@ -1584,8 +1620,8 @@ function confirmMoveToPromo(promoId){
   var promo=promos.find(function(p){return p.id===promoId;});if(!promo)return;
   var added=0;
   enrichItems(l.items,l.date);
-  var abcdMap2=getABCDMap(l.items);var xyzMap2=calcXYZ(l.items);
-  l.items.forEach(function(i){i._abcd=abcdMap2[i.id]||'D';i._xyz=xyzMap2[i.id]||'Z';});
+  var abcdMap2=getABCDMap(l.items);
+  l.items.forEach(function(i){i._abcd=abcdMap2[i.id]||'D';});
   var mm2=metrics(l);
   selectedItems.forEach(function(itemId){
     var item=l.items.find(function(i){return i.id===itemId;});if(!item)return;
@@ -1614,8 +1650,7 @@ function bulkMoveToNewPromo(){
 function moveAllPromoCandidates(){
   var l=lots.find(function(x){return x.id===activeLotId;});if(!l)return;
   enrichItems(l.items,l.date);
-  var abcdMap=getABCDMap(l.items);var xyzMap=calcXYZ(l.items);
-  l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';i._xyz=xyzMap[i.id]||'Z';});
+  var abcdMap=getABCDMap(l.items);l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';});
   var m=metrics(l);
   var cands=l.items.filter(function(i){var rec=calcRecommendedDiscount(i,l.date,m.recovery>=100);return rec.isPromoCandidate&&!(i.activePromos||[]).length;});
   if(!cands.length){alert('Нет кандидатов');return;}
@@ -1657,8 +1692,8 @@ function savePromoMeta(){
     if(window._pendingPromoItems&&window._pendingPromoItems.length){
       var l=lots.find(function(x){return x.id===lotId;});
       enrichItems(l.items,l.date);
-      var abcdMap=getABCDMap(l.items);var xyzMap=calcXYZ(l.items);
-      l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';i._xyz=xyzMap[i.id]||'Z';});
+      var abcdMap=getABCDMap(l.items);
+      l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';});
       var mm=metrics(l);
       window._pendingPromoItems.forEach(function(itemId){
         var item=l.items.find(function(i){return i.id===itemId;});
@@ -1728,7 +1763,8 @@ function renderPromoDetail(){
     totalRemain+=remain;
     var days=p.unlimited?30:(end&&p.startDate?Math.max(1,(end-new Date(p.startDate))/86400000):14);
     var weeks=days/7;
-    var boost=Math.round((item.avgPerMonth||0)/4*weeks*1.5);
+    var lb=getLearnedBoost(pi.discPct||0);var bmul=lb?lb.boost:(1+((pi.discPct||0)/100)*2);
+    var boost=Math.round((item.avgPerMonth||0)/4*weeks*bmul);
     forecastSold+=Math.min(boost,remain);
     var dp=item.price*(1-(pi.discPct||0)/100);
     forecastRev+=Math.min(boost,remain)*dp;
@@ -1952,6 +1988,62 @@ function delLot(id){if(!confirm('Удалить лот полностью?'))ret
 function toggleStatus(id){var l=lots.find(function(x){return x.id===id;});if(!l)return;l.status=l.status==='closed'?'active':'closed';save();closeModal('modal-detail');renderAnalytics();}
 
 // ===== ANALYTICS PAGE =====
+
+// Экран "Требует внимания" — алерты по всем лотам
+function buildAlerts(){
+  var alerts=[];
+  var now=new Date();
+  // 1. Истекающие/истёкшие акции
+  promos.forEach(function(p){
+    if(p.status!=='active'||p.unlimited||!p.endDate)return;
+    var end=new Date(p.endDate);
+    var daysLeft=Math.round((end-now)/86400000);
+    var l=lots.find(function(x){return x.id===p.lotId;});
+    if(daysLeft<0){
+      alerts.push({level:'red',icon:'⏰',text:'Акция «'+p.name+'» истекла '+p.endDate+' — завершите или продлите',action:'openPromoDetail',id:p.id});
+    } else if(daysLeft<=2){
+      alerts.push({level:'orange',icon:'⏰',text:'Акция «'+p.name+'» заканчивается через '+daysLeft+' дн',action:'openPromoDetail',id:p.id});
+    }
+  });
+  // 2. По лотам: красная зона сезона, окупаемость, слив
+  lots.forEach(function(l){
+    if(l.status==='closed')return;
+    enrichItems(l.items,l.date);
+    var m=metrics(l);
+    var abcdMap=getABCDMap(l.items);l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';});
+    var lotRecovered=m.recovery>=100;
+    var critCount=0,promoCount=0,liqCount=0;
+    l.items.forEach(function(i){
+      var rec=calcRecommendedDiscount(i,l.date,lotRecovered);
+      if(rec.isLiquidate)liqCount++;
+      else if(rec.isPromoCandidate)promoCount++;
+      else if(rec.disc>0&&!rec.skipA)critCount++;
+    });
+    // Окупился — можно агрессивно чистить
+    if(lotRecovered&&m.remainQty>0){
+      alerts.push({level:'green',icon:'✅',text:'Лот «'+l.name+'» окупился ('+pct(m.recovery)+'). Остаток '+m.remainQty+' шт — можно агрессивно распродавать в плюс',action:'openDetail',id:l.id});
+    }
+    if(promoCount>0){
+      alerts.push({level:'orange',icon:'🏷',text:'Лот «'+l.name+'»: '+promoCount+' поз. в красной зоне сезона — рекомендуются акции с дедлайном',action:'openDetail',id:l.id});
+    }
+    if(liqCount>0){
+      alerts.push({level:'red',icon:'🔥',text:'Лот «'+l.name+'»: '+liqCount+' поз. с маленьким остатком не продаются — слить',action:'openDetail',id:l.id});
+    }
+  });
+  // Сортируем: red > orange > green
+  var order={red:0,orange:1,green:2};
+  alerts.sort(function(a,b){return order[a.level]-order[b.level];});
+  if(alerts.length===0)return '';
+  var bg={red:'#3d1a1a',orange:'#3d2810',green:'#0d2d18'};
+  var bd={red:'var(--red)',orange:'var(--orange)',green:'var(--green)'};
+  var html='<div style="margin-bottom:20px"><div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text2)">⚡ Требует внимания ('+alerts.length+')</div>';
+  alerts.slice(0,12).forEach(function(a){
+    html+='<div onclick="'+a.action+'(\''+a.id+'\')" style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:'+bg[a.level]+';border:1px solid '+bd[a.level]+';border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:11px"><span style="font-size:14px">'+a.icon+'</span><span style="flex:1;color:var(--text)">'+a.text+'</span><span style="color:var(--text3);font-size:14px">›</span></div>';
+  });
+  html+='</div>';
+  return html;
+}
+
 function renderAnalytics(){
   var el=document.getElementById('analytics-content');
   var headerBtn='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-size:14px;font-weight:600">Лоты и сводная аналитика</div><div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" onclick="forceSyncAll()"><i class="ti ti-cloud-upload"></i> Синхронизировать</button><button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i> Настройки</button><button class="btn btn-primary btn-sm" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button></div></div>';
@@ -1965,7 +2057,7 @@ function renderAnalytics(){
   var tStale=lots.reduce(function(s,l){return s+metrics(l).staleItems;},0);
   var avgGM=tFact>0?(tGP/tFact*100):0;
   var netColor=tNet>=0?'var(--green)':'var(--red)';
-  var html=headerBtn+
+  var html=headerBtn+buildAlerts()+
     '<div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">'+
     '<div class="stat-card"><div class="stat-lbl">Стоимость лотов</div><div class="stat-val">'+fmt(tCost)+' ₸</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Выручка</div><div class="stat-val" style="color:var(--accent)">'+fmt(tFact)+' ₸</div></div>'+
