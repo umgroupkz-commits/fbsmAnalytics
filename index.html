@@ -1200,8 +1200,9 @@ function renderLots(){
 
 // ===== DETAIL =====
 function openDetail(id){
-  activeLotId=id;detailFilters={abcd:new Set(),xyz:new Set(),age:new Set()};detailSort={col:null,dir:-1};detailMode='abcd_rev';
+  activeLotId=id;detailFilters={abcd:new Set(),xyz:new Set(),age:new Set()};detailMode='abcd_rev';
   selectedItems=new Set();lastCheckedIdx=null;showABCDXYZ=false;activeDetailTab='dtab-table';
+  detailSort={col:'_abcd',dir:1};
   renderDetail();
 }
 function renderDetail(){
@@ -1226,15 +1227,28 @@ function renderDetail(){
   if(detailFilters.xyz.size>0)filtered=filtered.filter(function(i){return detailFilters.xyz.has(xyzMap[i.id]||'Z');});
   if(detailFilters.age.size>0)filtered=filtered.filter(function(i){var w=i.weeksOnShelf||0;var z=w<=CFG.age1?'ok':w<=CFG.age2?'w':w<=CFG.age3?'r':'c';return detailFilters.age.has(z);});
   if(detailSort.col){var col=detailSort.col;var dir=detailSort.dir;
+    var abcdField=detailMode==='abcd_qty'?'soldQty':detailMode==='abcd_avg'?'avgPerMonth':detailMode==='abcd_gp'?'grossProfit':'soldRev';
     filtered.sort(function(a,b){
-      var av,bv;
-      if(col==='_abcd'){av=abcdMap[a.id]||'D';bv=abcdMap[b.id]||'D';}
-      else if(col==='_xyz'){av=xyzMap[a.id]||'Z';bv=xyzMap[b.id]||'Z';}
-      else{av=a[col]!=null?a[col]:-Infinity;bv=b[col]!=null?b[col]:-Infinity;}
+      if(col==='_abcd'){
+        // Сортировка по группе ABCD: сначала по букве, потом внутри группы по показателю анализа (по убыванию)
+        var ga=abcdMap[a.id]||'D';var gb=abcdMap[b.id]||'D';
+        if(ga!==gb)return dir*(ga>gb?1:-1);
+        // Внутри одной группы - по показателю анализа, всегда по убыванию
+        var ma=a[abcdField]||0;var mb=b[abcdField]||0;
+        return mb-ma;
+      }
+      if(col==='_xyz'){
+        var xa=xyzMap[a.id]||'Z';var xb=xyzMap[b.id]||'Z';
+        if(xa!==xb)return dir*(xa>xb?1:-1);
+        var ma2=a.avgPerMonth||0;var mb2=b.avgPerMonth||0;
+        return mb2-ma2;
+      }
+      var av=a[col]!=null?a[col]:-Infinity;var bv=b[col]!=null?b[col]:-Infinity;
       return dir*(av>bv?1:av<bv?-1:0);
     });
   }
 
+  var abcdModeHint=detailMode==='abcd_qty'?'группы по проданным штукам':detailMode==='abcd_avg'?'группы по среднемесячным продажам':detailMode==='abcd_gp'?'группы по валовой прибыли':'группы по выручке';
   var staleItems=l.items.filter(function(i){return i.soldQty===0&&(i.weeksOnShelf||0)>CFG.age1;});
   var frozenCost=staleItems.reduce(function(s,i){return s+(i.costPer||0)*i.qty;},0);
   var lotRecovered=m.recovery>=100;
@@ -1352,6 +1366,7 @@ function renderDetail(){
     '<button class="mode-btn'+(detailMode==='abcd_avg'?' active':'')+'" onclick="setDetailMode(\'abcd_avg\')">ABCD ср/мес</button>'+
     '<button class="mode-btn'+(detailMode==='abcd_gp'?' active':'')+'" onclick="setDetailMode(\'abcd_gp\')">ABCD прибыль</button>'+
     '</div>'+
+    '<span style="font-size:9px;color:var(--text3)" title="ABCD группирует позиции: A — дают первые 50% показателя, B — до 80%, C — до 95%, D — хвост. Клик по колонке ABCD сортирует по группам, внутри группы — по показателю.">'+abcdModeHint+'</span>'+
     '<button class="btn '+(showABCDXYZ?'btn-primary':'btn-ghost')+' btn-sm" onclick="toggleABCDXYZ()">📊 '+(showABCDXYZ?'Скрыть XYZ':'Показать XYZ')+'</button>'+
     '<div style="font-size:10px;color:var(--text3);margin-left:auto">'+filtered.length+' из '+l.items.length+'</div></div>'+
     '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">'+chips+'</div>'+
@@ -1487,11 +1502,23 @@ function getFilteredIds(){
   if(detailFilters.xyz.size>0)filtered=filtered.filter(function(i){return detailFilters.xyz.has(xyzMap[i.id]||'Z');});
   if(detailFilters.age.size>0)filtered=filtered.filter(function(i){var w=i.weeksOnShelf||0;var z=w<=CFG.age1?'ok':w<=CFG.age2?'w':w<=CFG.age3?'r':'c';return detailFilters.age.has(z);});
   if(detailSort.col){var col=detailSort.col;var dir=detailSort.dir;
+    var abcdField=detailMode==='abcd_qty'?'soldQty':detailMode==='abcd_avg'?'avgPerMonth':detailMode==='abcd_gp'?'grossProfit':'soldRev';
     filtered.sort(function(a,b){
-      var av,bv;
-      if(col==='_abcd'){av=abcdMap[a.id]||'D';bv=abcdMap[b.id]||'D';}
-      else if(col==='_xyz'){av=xyzMap[a.id]||'Z';bv=xyzMap[b.id]||'Z';}
-      else{av=a[col]!=null?a[col]:-Infinity;bv=b[col]!=null?b[col]:-Infinity;}
+      if(col==='_abcd'){
+        // Сортировка по группе ABCD: сначала по букве, потом внутри группы по показателю анализа (по убыванию)
+        var ga=abcdMap[a.id]||'D';var gb=abcdMap[b.id]||'D';
+        if(ga!==gb)return dir*(ga>gb?1:-1);
+        // Внутри одной группы - по показателю анализа, всегда по убыванию
+        var ma=a[abcdField]||0;var mb=b[abcdField]||0;
+        return mb-ma;
+      }
+      if(col==='_xyz'){
+        var xa=xyzMap[a.id]||'Z';var xb=xyzMap[b.id]||'Z';
+        if(xa!==xb)return dir*(xa>xb?1:-1);
+        var ma2=a.avgPerMonth||0;var mb2=b.avgPerMonth||0;
+        return mb2-ma2;
+      }
+      var av=a[col]!=null?a[col]:-Infinity;var bv=b[col]!=null?b[col]:-Infinity;
       return dir*(av>bv?1:av<bv?-1:0);
     });
   }
