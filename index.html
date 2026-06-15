@@ -1334,13 +1334,11 @@ function renderDetail(){
       '<td style="text-align:right" class="mono'+(remain===0?' num-zero':'')+'">'+remain+'</td>'+
       '<td style="text-align:right" class="mono">'+(item.price>0?fmt(item.price):'—')+'</td>'+
       '<td style="text-align:right;color:var(--text2)" class="mono">'+fmt(item.costPer)+'</td>'+
-      '<td style="text-align:right;color:'+mgColor+'" class="mono">'+pct(item.mgUnit)+'</td>'+
       '<td style="text-align:right" class="mono'+(item.soldQty===0?' num-zero':'')+'">'+(item.soldQty||0)+'</td>'+
       '<td style="text-align:right;font-family:var(--mono)">'+(item.soldRev>0?fmt(item.soldRev):'—')+'</td>'+
       '<td style="text-align:right;color:'+((item.grossProfit||0)>0?'var(--green)':'var(--red)')+'" class="mono">'+(item.soldQty>0?fmt(item.grossProfit):'—')+'</td>'+
       '<td style="text-align:right" class="mono">'+(item.soldQty>0?fmtD(item.avgPerMonth):'—')+'</td>'+
       '<td style="text-align:right" class="'+covCls+' mono">'+(item.coverMonths!==null&&item.soldQty>0?fmtD(item.coverMonths)+'м':'—')+'</td>'+
-      '<td style="text-align:center" class="'+ageCls+' mono">'+(item.weeksOnShelf>0?item.weeksOnShelf+'н':'—')+'</td>'+
       '<td style="text-align:center"><button class="btn btn-ghost btn-sm" style="font-size:13px;padding:2px 6px" onclick="openItemStats(\''+item.id+'\')" title="Статистика продаж">📈</button></td>'+
       abcdxyzCells+
       discCell+
@@ -1363,7 +1361,7 @@ function renderDetail(){
 
   var html='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px">'+
     '<div style="flex:1"><div class="modal-title">'+l.name+'</div>'+
-    '<div style="font-size:11px;color:var(--text2)">'+(l.supplier||'—')+' · '+(l.date||'—')+' · '+l.items.length+' позиций · '+m.daysActive+' дней'+(l.totalUnits?' · лот '+fmt(l.totalUnits)+' шт':'')+' · оприх. '+fmt(m.totalQty)+' шт</div></div>'+
+    '<div style="font-size:11px;color:var(--text2)">'+(l.supplier||'—')+' · '+(l.date||'—')+' · '+l.items.length+' позиций · лот активен '+m.lotAgeWeeks+' нед'+(l.totalUnits?' · лот '+fmt(l.totalUnits)+' шт':'')+' · оприх. '+fmt(m.totalQty)+' шт</div></div>'+
     '<button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i></button>'+
     '<button class="btn btn-ghost btn-sm" onclick="closeModal(\'modal-detail\')"><i class="ti ti-x"></i></button></div>'+
 
@@ -1372,7 +1370,8 @@ function renderDetail(){
     '<div class="stat-card"><div class="stat-lbl">Выручка факт</div><div class="stat-val" style="color:var(--accent)">'+fmt(m.factRev)+' ₸</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Окупаемость</div><div class="stat-val" style="color:'+(m.recovery>=100?'var(--green)':m.recovery>50?'var(--yellow)':'var(--text)')+'">'+(m.fullCost>0?pct(m.recovery):'—')+'</div><div class="stat-sub">'+fmt(m.factRev)+' / '+fmt(m.fullCost)+'</div></div>'+
     '<div class="stat-card" style="border-color:'+netColor+'"><div class="stat-lbl">Чистая прибыль</div><div class="stat-val" style="color:'+netColor+'">'+(m.netProfit>=0?'+':'')+fmt(m.netProfit)+' ₸</div><div class="stat-sub">выручка − стоимость лота</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Вал. прибыль</div><div class="stat-val" style="color:'+(m.grossProfit>0?'var(--green)':'var(--red)')+'">'+fmt(m.grossProfit)+' ₸</div><div class="stat-sub">маржа '+(m.factRev>0?pct(m.grossMarginPct):'—')+'</div></div>'+
+    '<div class="stat-card"><div class="stat-lbl">Вал. прибыль</div><div class="stat-val" style="color:'+(m.grossProfit>0?'var(--green)':'var(--red)')+'">'+fmt(m.grossProfit)+' ₸</div></div>'+
+    '<div class="stat-card"><div class="stat-lbl">Маржа лота</div><div class="stat-val" style="color:'+(m.planMarginLot>=CFG.targetMargin?'var(--green)':m.planMarginLot>30?'var(--yellow)':'var(--red)')+'">'+pct(m.planMarginLot)+'</div><div class="stat-sub">план · факт '+(m.factRev>0?pct(m.grossMarginPct):'—')+'</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Продано</div><div class="stat-val">'+pct(m.soldPct)+'</div><div class="progress-bar-wrap" style="margin-top:5px"><div class="progress-bar" style="width:'+Math.min(m.soldPct,100)+'%;background:'+(m.soldPct>=80?'var(--green)':m.soldPct>40?'var(--yellow)':'var(--accent)')+'"></div></div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Остаток</div><div class="stat-val">'+m.remainQty+' шт</div></div>'+
     '</div>'+
@@ -1397,7 +1396,7 @@ function renderDetail(){
     '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">'+chips+'</div>'+
     bulkBar+
     '<div style="overflow-x:auto"><table><thead>'+
-    '<tr><th class="checkbox-cell"></th>'+thS('name','Наименование')+thS('qty','Ост.')+thS('price','Цена')+thS('costPer','Себест.')+thS('mgUnit','Маржа%')+thS('soldQty','Прод.')+thS('soldRev','Выр.₸')+thS('grossProfit','Вал.пр.₸')+thS('avgPerMonth','Ср/мес')+thS('coverMonths','Запас')+thS('weeksOnShelf','Возр.')+'<th>График</th>'+thS('_abcd','ABCD')+'<th>🏷</th></tr>'+
+    '<tr><th class="checkbox-cell"></th>'+thS('name','Наименование')+thS('qty','Ост.')+thS('price','Цена')+thS('costPer','Себест.')+thS('soldQty','Прод.')+thS('soldRev','Выр.₸')+thS('grossProfit','Вал.пр.₸')+thS('avgPerMonth','Ср/мес')+thS('coverMonths','Запас')+'<th>График</th>'+thS('_abcd','ABCD')+'<th>🏷</th></tr>'+
     '</thead><tbody>'+tableRows+'</tbody></table></div></div>'+
 
     '<div class="detail-panel" id="dtab-disc">'+discTabHTML+'</div>'+
