@@ -41,6 +41,8 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .badge-D{background:#3d1a1a;color:var(--red);border:1px solid #5a2020}
 .badge-S{background:#0d2d18;color:var(--green)}
 .badge-U{background:#2d2510;color:var(--yellow)}
+.badge-X{background:#0d2d18;color:var(--green)}
+.badge-Y{background:#2d2510;color:var(--yellow)}
 .badge-Z{background:#3d1a1a;color:var(--red)}
 .badge-lot{background:#1a2d50;color:var(--accent)}
 .badge-closed{background:var(--surface3);color:var(--text3)}
@@ -88,6 +90,8 @@ tr:hover td{background:#1a2030}
 .fchip-D{background:#3d1a1a;color:var(--red);border-color:#5a2020}
 .fchip-S{background:#0d2d18;color:var(--green);border-color:#1a5a30}
 .fchip-U{background:#2d2510;color:var(--yellow);border-color:#5a4a10}
+.fchip-X{background:#0d2d18;color:var(--green);border-color:#1a5a30}
+.fchip-Y{background:#2d2510;color:var(--yellow);border-color:#5a4a10}
 .fchip-Z{background:#3d1a1a;color:var(--red);border-color:#5a2020}
 .fchip-ok{background:#0d2d18;color:var(--green);border-color:#1a5a30}
 .fchip-warn{background:#2d2510;color:var(--yellow);border-color:#5a4a10}
@@ -699,7 +703,7 @@ function calcXYZ(items){
     if(mean===0){res[i.id]='Z';return;}
     var std=Math.sqrt(wks.reduce(function(s,v){return s+Math.pow(v-mean,2);},0)/wks.length);
     var cv=std/mean;
-    res[i.id]=cv<0.3?'S':cv<0.7?'U':'Z';
+    res[i.id]=cv<0.3?'X':cv<0.7?'Y':'Z';
   });
   return res;
 }
@@ -768,7 +772,7 @@ function calcRecommendedDiscount(item,lotDate,lotRecovered){
     var rates=CFG.noSaleDiscRates||[0,15,25,35,50];
     var idx=0;for(var i=0;i<breaks.length;i++){if(weeks>=breaks[i])idx=i+1;}
     recDisc=rates[Math.min(idx,rates.length-1)]||0;
-    reason=recDisc>0?('Нет продаж '+weeks+'н'):'Новинка';
+    reason=recDisc>0?('Нет продаж уже '+weeks+' нед.'):'Новинка — пока не трогаем';
     if(recDisc>=30)isPromoCandidate=true;
   } else if(monthsLeft!==null&&item.avgPerMonth>0){
     var forecast=remain/item.avgPerMonth;
@@ -778,8 +782,8 @@ function calcRecommendedDiscount(item,lotDate,lotRecovered){
     var idx2=0;for(var i=0;i<thresholds.length;i++){if(ratio>=thresholds[i])idx2=i+1;}
     recDisc=rates2[Math.min(idx2,rates2.length-1)]||0;
     if(recDisc>0){
-      reason='Прогноз '+forecast.toFixed(1)+'м vs сезон '+monthsLeft.toFixed(1)+'м (К='+ratio.toFixed(1)+')';
-      if(item._abcd==='D'&&item._xyz==='Z'){recDisc=Math.min(recDisc+10,90);reason+=' · DZ';}
+      reason='Остаток распродастся за '+forecast.toFixed(1)+' мес, до конца сезона '+monthsLeft.toFixed(1)+' мес — отстаёт в '+ratio.toFixed(1)+' раза';
+      if(item._abcd==='D'&&item._xyz==='Z'){recDisc=Math.min(recDisc+10,90);reason+=' · слабый нестабильный товар (+10%)';}
       if(recDisc>=30)isPromoCandidate=true;
     }
   }
@@ -791,7 +795,7 @@ function calcRecommendedDiscount(item,lotDate,lotRecovered){
   var finalDisc=recDisc,priceWarning='';
   if(belowCost&&!lotOk&&item.price>0&&minPrice>0){
     var maxDisc=Math.max(0,Math.floor((1-minPrice/item.price)*100));
-    if(recDisc>maxDisc){finalDisc=maxDisc;priceWarning='Огр.себест. макс.'+maxDisc+'%';}
+    if(recDisc>maxDisc){finalDisc=maxDisc;priceWarning='Ограничено себестоимостью: макс. '+maxDisc+'%';}
   }
   var forecastVal=(item.avgPerMonth>0&&item.soldQty>0)?Math.max(remain/item.avgPerMonth,0):null;
   return{disc:finalDisc,recDisc:recDisc,reason:reason,escalate:escalate,belowCost:belowCost,priceWarning:priceWarning,discPrice:Math.round(item.price*(1-finalDisc/100)),monthsLeft:monthsLeft,forecast:forecastVal,isPromoCandidate:isPromoCandidate};
@@ -1216,7 +1220,7 @@ function renderDetail(){
 
   var abcdCnt={A:0,B:0,C:0,D:0};
   l.items.forEach(function(i){abcdCnt[abcdMap[i.id]||'D']++;});
-  var xyzCnt={S:0,U:0,Z:0};
+  var xyzCnt={X:0,Y:0,Z:0};
   l.items.forEach(function(i){xyzCnt[xyzMap[i.id]||'Z']++;});
   var totalRev=l.items.reduce(function(s,i){return s+(i.soldRev||0);},0);
   var totalGP=l.items.reduce(function(s,i){return s+(i.grossProfit||0);},0);
@@ -1265,7 +1269,7 @@ function renderDetail(){
   ['A','B','C','D'].forEach(function(x){chips+='<span class="fchip fchip-'+x+(detailFilters.abcd.has(x)?' active':'')+'" onclick="toggleFilter(\'abcd\',\''+x+'\')">'+x+' ('+abcdCnt[x]+')</span>';});
   if(showABCDXYZ){
     chips+='<span style="color:var(--text3);font-size:10px;align-self:center;margin:0 3px">·</span>';
-    ['S','U','Z'].forEach(function(x){chips+='<span class="fchip fchip-'+x+(detailFilters.xyz.has(x)?' active':'')+'" onclick="toggleFilter(\'xyz\',\''+x+'\')">'+x+' ('+xyzCnt[x]+')</span>';});
+    ['X','Y','Z'].forEach(function(x){var xlbl=x==='X'?'X·ровно':x==='Y'?'Y·колебл':'Z·случайно';chips+='<span class="fchip fchip-'+x+(detailFilters.xyz.has(x)?' active':'')+'" onclick="toggleFilter(\'xyz\',\''+x+'\')" title="'+(x==='X'?'Стабильный спрос — продаётся ровно':x==='Y'?'Колеблющийся спрос':'Нерегулярный, случайный спрос')+'">'+xlbl+' ('+xyzCnt[x]+')</span>';});
   }
   chips+='<span style="color:var(--text3);font-size:10px;align-self:center;margin:0 3px">·</span>';
   [['ok','🟢<'+CFG.age1],['w','🟡'+CFG.age1+'-'+CFG.age2],['r','🟠'+CFG.age2+'-'+CFG.age3],['c','🔴>'+CFG.age3]].forEach(function(pair){
@@ -1367,7 +1371,7 @@ function renderDetail(){
     '<button class="mode-btn'+(detailMode==='abcd_gp'?' active':'')+'" onclick="setDetailMode(\'abcd_gp\')">ABCD прибыль</button>'+
     '</div>'+
     '<span style="font-size:9px;color:var(--text3)" title="ABCD группирует позиции: A — дают первые 50% показателя, B — до 80%, C — до 95%, D — хвост. Клик по колонке ABCD сортирует по группам, внутри группы — по показателю.">'+abcdModeHint+'</span>'+
-    '<button class="btn '+(showABCDXYZ?'btn-primary':'btn-ghost')+' btn-sm" onclick="toggleABCDXYZ()">📊 '+(showABCDXYZ?'Скрыть XYZ':'Показать XYZ')+'</button>'+
+    '<button class="btn '+(showABCDXYZ?'btn-primary':'btn-ghost')+' btn-sm" onclick="toggleABCDXYZ()" title="XYZ — стабильность спроса. X — продаётся ровно каждую неделю. Y — с колебаниями. Z — нерегулярно, случайно.">📊 '+(showABCDXYZ?'Скрыть XYZ':'Показать XYZ (стабильность)')+'</button>'+
     '<div style="font-size:10px;color:var(--text3);margin-left:auto">'+filtered.length+' из '+l.items.length+'</div></div>'+
     '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">'+chips+'</div>'+
     bulkBar+
