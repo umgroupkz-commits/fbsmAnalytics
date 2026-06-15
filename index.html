@@ -727,6 +727,32 @@ function enrichItems(items,lotDate){
 
 
 // ===== DISCOUNT ENGINE =====
+// Оценка срока акции и сколько продастся за период
+function estimatePromoPeriod(item,discPct){
+  var remain=Math.max((item.qty||0)-(item.soldQty||0),0);
+  var avgWeek=(item.avgPerMonth||0)/4;
+  // Скидка ускоряет продажи: множитель растёт со скидкой
+  var boost=1+(discPct/100)*2; // -30% -> x1.6, -50% -> x2.0
+  var boostedWeekly=avgWeek*boost;
+  // Рекомендуемый срок: максимум 2 недели (14 дней), но если остаток маленький - меньше
+  var maxDays=14;
+  var willSellIn14=Math.round(boostedWeekly*2);
+  var days,willSell;
+  if(boostedWeekly<=0){
+    days=14;willSell=0;
+  } else if(willSellIn14>=remain){
+    // Весь остаток уйдёт быстрее чем за 2 недели
+    var weeksNeeded=remain/boostedWeekly;
+    days=Math.max(3,Math.ceil(weeksNeeded*7));
+    days=Math.min(days,14);
+    willSell=Math.min(Math.round(boostedWeekly*(days/7)),remain);
+  } else {
+    days=14;
+    willSell=Math.min(willSellIn14,remain);
+  }
+  return{days:days,willSell:willSell};
+}
+
 function calcRecommendedDiscount(item,lotDate,lotRecovered){
   var remain=Math.max((item.qty||0)-(item.soldQty||0),0);
   if(remain<=0)return{disc:0,reason:'Продано',escalate:false,discPrice:0,monthsLeft:null,forecast:null,isPromoCandidate:false};
@@ -1260,7 +1286,7 @@ function renderDetail(){
       discCell+='<span style="background:'+bg2+';color:'+c2+';padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono);cursor:pointer" onclick="'+(drec.isPromoCandidate?'openPromoPickerFor([\''+item.id+'\'])':'applyDiscount(\''+item.id+'\')')+'" title="'+drec.reason+'">'+btnLabel+' −'+drec.disc+'%</span>';
     }
     discCell+='</td>';
-    var abcdxyzCells=showABCDXYZ?'<td style="text-align:center"><span class="badge badge-'+abc+'">'+abc+'</span></td><td style="text-align:center"><span class="badge badge-'+xyz+'">'+xyz+'</span></td>':'';
+    var abcdxyzCells='<td style="text-align:center"><span class="badge badge-'+abc+'">'+abc+'</span></td>'+(showABCDXYZ?'<td style="text-align:center"><span class="badge badge-'+xyz+'">'+xyz+'</span></td>':'');
     tableRows+='<tr>'+
       '<td class="checkbox-cell"><input type="checkbox" class="row-check" data-id="'+item.id+'" data-idx="'+idx+'" '+checked+' onclick="onRowCheck(event,'+idx+')"></td>'+
       '<td style="max-width:200px"><div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+item.name+'</div><div style="margin-top:2px">'+labels+'</div></td>'+
@@ -1282,14 +1308,11 @@ function renderDetail(){
 
   // Bulk bar
   var selCount=selectedItems.size;
-  var promoOptions=activePromos.map(function(p){return '<option value="'+p.id+'">'+p.name+'</option>';}).join('');
   var bulkBar='<div class="bulk-bar">'+
     '<button class="btn btn-ghost btn-sm" onclick="selectAllFiltered()">☑ Выделить все</button>'+
     '<button class="btn btn-ghost btn-sm" onclick="deselectAll()">☐ Снять</button>'+
     '<span class="bulk-count">'+(selCount>0?'Выбрано: '+selCount:'')+'</span>'+
-    (selCount>0?'<div style="margin-left:auto;display:flex;gap:6px;align-items:center"><span style="font-size:10px;color:var(--text2)">Перенести в:</span>'+
-      (activePromos.length>0?'<select class="inp inp-sm" id="bulk-promo-sel" style="width:160px">'+promoOptions+'</select><button class="btn btn-warn btn-sm" onclick="bulkMoveToPromo()">→ В акцию</button>':'')+
-      '<button class="btn btn-primary btn-sm" onclick="bulkMoveToNewPromo()">+ Новая акция</button></div>':'')+
+    (selCount>0?'<div style="margin-left:auto;display:flex;gap:6px;align-items:center"><button class="btn btn-warn btn-sm" onclick="bulkMoveToPromo(true)">🏷 Перенести в акцию →</button></div>':'')+
     '</div>';
 
   // === Build discount tab ===
@@ -1329,12 +1352,12 @@ function renderDetail(){
     '<button class="mode-btn'+(detailMode==='abcd_avg'?' active':'')+'" onclick="setDetailMode(\'abcd_avg\')">ABCD ср/мес</button>'+
     '<button class="mode-btn'+(detailMode==='abcd_gp'?' active':'')+'" onclick="setDetailMode(\'abcd_gp\')">ABCD прибыль</button>'+
     '</div>'+
-    '<button class="btn '+(showABCDXYZ?'btn-primary':'btn-ghost')+' btn-sm" onclick="toggleABCDXYZ()">📊 ABCD+XYZ</button>'+
+    '<button class="btn '+(showABCDXYZ?'btn-primary':'btn-ghost')+' btn-sm" onclick="toggleABCDXYZ()">📊 '+(showABCDXYZ?'Скрыть XYZ':'Показать XYZ')+'</button>'+
     '<div style="font-size:10px;color:var(--text3);margin-left:auto">'+filtered.length+' из '+l.items.length+'</div></div>'+
     '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">'+chips+'</div>'+
     bulkBar+
     '<div style="overflow-x:auto"><table><thead>'+
-    '<tr><th class="checkbox-cell"></th>'+thS('name','Наименование')+thS('qty','Ост.')+thS('price','Цена')+thS('costPer','Себест.')+thS('mgUnit','Маржа%')+thS('soldQty','Прод.')+thS('soldRev','Выр.₸')+thS('grossProfit','Вал.пр.₸')+thS('avgPerMonth','Ср/мес')+thS('coverMonths','Запас')+thS('weeksOnShelf','Возр.')+'<th>График</th>'+(showABCDXYZ?thS('_abcd','ABCD')+thS('_xyz','XYZ'):'')+'<th>🏷</th></tr>'+
+    '<tr><th class="checkbox-cell"></th>'+thS('name','Наименование')+thS('qty','Ост.')+thS('price','Цена')+thS('costPer','Себест.')+thS('mgUnit','Маржа%')+thS('soldQty','Прод.')+thS('soldRev','Выр.₸')+thS('grossProfit','Вал.пр.₸')+thS('avgPerMonth','Ср/мес')+thS('coverMonths','Запас')+thS('weeksOnShelf','Возр.')+'<th>График</th>'+thS('_abcd','ABCD')+(showABCDXYZ?thS('_xyz','XYZ'):'')+'<th>🏷</th></tr>'+
     '</thead><tbody>'+tableRows+'</tbody></table></div></div>'+
 
     '<div class="detail-panel" id="dtab-disc">'+discTabHTML+'</div>'+
@@ -1382,17 +1405,19 @@ function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,disc
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-size:11px;font-weight:600">🏷 Кандидаты на акцию ('+promoItems.length+' поз.)</div>'+
       '<button class="btn btn-primary btn-sm" onclick="moveAllPromoCandidates()" style="margin-left:auto"><i class="ti ti-plus"></i> Создать акцию из всех</button></div>'+
       '<div style="font-size:10px;color:var(--text2);margin-bottom:8px">Скидка ≥30% — рекомендуется временная акция с дедлайном</div>'+
-      '<div style="overflow-x:auto"><table><thead><tr><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Прод.шт</th><th>Ср/мес</th><th>Запас</th><th>Возр.</th><th>Рек.скидка</th><th>Прогноз</th><th>Причина</th><th></th></tr></thead><tbody>';
+      '<div style="overflow-x:auto"><table><thead><tr><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Прод.шт</th><th>Ср/мес</th><th>Запас</th><th>Возр.</th><th>Рек.скидка</th><th>Срок акции</th><th>Продастся</th><th>Причина</th><th></th></tr></thead><tbody>';
     promoItems.forEach(function(item){
       var drec=discRecs[item.id];
       var remain=Math.max(item.qty-(item.soldQty||0),0);
+      var promoPeriod=estimatePromoPeriod(item,drec.disc);
       html+='<tr><td style="font-weight:500">'+item.name+'</td><td class="mono">'+remain+'</td><td class="mono">'+fmt(item.price)+'</td>'+
         '<td class="mono'+(item.soldQty===0?' num-zero':'')+'">'+(item.soldQty||0)+'</td>'+
         '<td class="mono">'+(item.soldQty>0?fmtD(item.avgPerMonth):'—')+'</td>'+
         '<td class="mono '+getCoverClass(item.coverMonths)+'">'+(item.coverMonths!==null&&item.soldQty>0?fmtD(item.coverMonths)+'м':'—')+'</td>'+
         '<td class="mono '+getAgeClass(item.weeksOnShelf||0)+'">'+(item.weeksOnShelf>0?item.weeksOnShelf+'н':'—')+'</td>'+
         '<td><span style="background:#3d2810;color:var(--orange);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono)">−'+drec.disc+'%</span></td>'+
-        '<td class="mono">'+(drec.forecast!==null?fmtD(drec.forecast)+'м':'—')+'</td>'+
+        '<td class="mono" style="color:var(--accent)">'+promoPeriod.days+' дн</td>'+
+        '<td class="mono" style="color:var(--green)">~'+promoPeriod.willSell+' шт</td>'+
         '<td style="font-size:10px;color:var(--text2)">'+drec.reason+'</td>'+
         '<td><button class="btn btn-warn btn-sm" onclick="openPromoPickerFor([\''+item.id+'\'])">→ В акцию</button></td></tr>';
     });
