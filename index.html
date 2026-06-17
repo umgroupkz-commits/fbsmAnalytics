@@ -2083,25 +2083,7 @@ function renderAnalytics(){
   var headerBtn='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-size:14px;font-weight:600">Лоты и сводная аналитика</div><div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" onclick="forceSyncAll()"><i class="ti ti-cloud-upload"></i> Синхронизировать</button><button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i> Настройки</button><button class="btn btn-primary btn-sm" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button></div></div>';
   if(!lots.length){el.innerHTML=headerBtn+'<div class="empty-state"><div style="font-size:40px">📦</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">Нет лотов</div><div style="font-size:12px">Нажмите «Новый лот»</div></div>';return;}
   lots.forEach(function(l){enrichItems(l.items,l.date);});
-  var tCost=lots.reduce(function(s,l){return s+(l.cost||0);},0);
-  var tFact=lots.reduce(function(s,l){return s+metrics(l).factRev;},0);
-  var tGP=lots.reduce(function(s,l){return s+metrics(l).grossProfit;},0);
-  var tProjProfit=lots.reduce(function(s,l){var mm=metrics(l);return s+(mm.projectedRev-mm.fullCost);},0);
-  var tNet=lots.reduce(function(s,l){return s+metrics(l).netProfit;},0);
-  var tRemain=lots.reduce(function(s,l){return s+metrics(l).remainQty;},0);
-  var tStale=lots.reduce(function(s,l){return s+metrics(l).staleItems;},0);
-  var avgGM=tFact>0?(tGP/tFact*100):0;
-  var netColor=tNet>=0?'var(--green)':'var(--red)';
   var html=headerBtn+buildAlerts()+
-    '<div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">'+
-    '<div class="stat-card"><div class="stat-lbl">Стоимость лотов</div><div class="stat-val">'+fmt(tCost)+' ₸</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Выручка</div><div class="stat-val" style="color:var(--accent)">'+fmt(tFact)+' ₸</div></div>'+
-    '<div class="stat-card" style="border-color:'+netColor+'"><div class="stat-lbl">Чистая прибыль</div><div class="stat-val" style="color:'+netColor+'">'+(tNet>=0?'+':'')+fmt(tNet)+' ₸</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Прогноз прибыли</div><div class="stat-val" style="color:'+(tProjProfit>=0?'var(--green)':'var(--red)')+'">'+(tProjProfit>=0?'+':'')+fmt(tProjProfit)+' ₸</div><div class="stat-sub">если всё продать по тек. ценам</div></div>'+
-
-    '<div class="stat-card"><div class="stat-lbl">Остаток шт</div><div class="stat-val">'+tRemain+'</div></div>'+
-    (tStale>0?'<div class="stat-card" style="border-color:var(--red)"><div class="stat-lbl" style="color:var(--red)">Залежалых</div><div class="stat-val" style="color:var(--red)">'+tStale+'</div></div>':'')+
-    '</div>'+
     '<div class="section-title" style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--text2)">Лоты ('+lots.length+')</div>';
   lots.forEach(function(l){
     var m=metrics(l);
