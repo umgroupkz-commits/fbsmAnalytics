@@ -231,8 +231,9 @@ tr:hover td{background:#1a2030}
     </div>
     <div class="grid2" style="margin-bottom:10px">
       <div><div class="lbl">Всего единиц в лоте <span style="font-size:9px;color:var(--text3)">(полный объём)</span></div><input class="inp" id="p-total-units" type="number" placeholder="пусто если неизвестно"></div>
-      <div><div class="lbl">Комментарий</div><input class="inp" id="p-comment"></div>
+      <div><div class="lbl">Цель прибыли к стоимости лота, % <span class="tag-req">обяз</span></div><input class="inp" id="p-profit-target" type="number" placeholder="напр. 70"></div>
     </div>
+    <div style="margin-bottom:10px"><div class="lbl">Комментарий</div><input class="inp" id="p-comment"></div>
     <div id="p-info" style="font-size:11px;color:var(--text2);background:var(--surface2);border-radius:8px;padding:9px 13px"></div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="cwGoTo(1)">← Назад</button><button class="btn btn-primary" onclick="cwNext2()">Рассчитать →</button></div>
   </div>
@@ -269,6 +270,7 @@ tr:hover td{background:#1a2030}
     <div><div class="lbl">Стоимость лота (₸)</div><input class="inp" id="upd-cost" type="number"></div>
     <div><div class="lbl">Всего единиц в лоте</div><input class="inp" id="upd-total-units" type="number" placeholder="полный объём"></div>
   </div>
+  <div style="margin-bottom:10px"><div class="lbl">Цель прибыли к стоимости лота, %</div><input class="inp" id="upd-profit-target" type="number"></div>
   <div id="upd-summary" style="font-size:11px;color:var(--text2);background:var(--surface2);border-radius:8px;padding:9px 13px;min-height:32px;margin-bottom:10px"></div>
   <div style="display:flex;gap:8px;justify-content:flex-end">
     <button class="btn btn-ghost" onclick="closeModal('modal-update')">Отмена</button>
@@ -383,6 +385,7 @@ tr:hover td{background:#1a2030}
         <label style="font-size:10px">«Маленький остаток» ≤</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-smallStock" type="number" min="1" max="50" style="width:55px"> шт</div>
         <label style="font-size:10px">Не скидывать группу A</label>
         <div style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="cfg-skipA" style="width:14px;height:14px"><label for="cfg-skipA" style="font-size:10px;color:var(--text2)">продаётся сама</label></div>
+        <label style="font-size:10px">Запас наценки на скидки</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-markupBuffer" type="number" min="0" max="100" style="width:55px"> пп</div>
 
       </div>
     </div>
@@ -470,7 +473,8 @@ const DEF_CFG={
   noSaleAgeBreaks:[4,8,12,16],
   profitTargetPct:60,
   smallStockQty:5,
-  skipDiscountOnA:true
+  skipDiscountOnA:true,
+  markupBuffer:15
 };
 let CFG=Object.assign({},DEF_CFG);
 function loadSettings(){try{const s=localStorage.getItem(SETTINGS_KEY);if(s)CFG=Object.assign({},DEF_CFG,JSON.parse(s));}catch(e){}}
@@ -494,6 +498,7 @@ function saveSettings(){
   var pt=document.getElementById('cfg-profitTarget');if(pt)CFG.profitTargetPct=parseInt(pt.value)||60;
   var ss=document.getElementById('cfg-smallStock');if(ss)CFG.smallStockQty=parseInt(ss.value)||5;
   var sa=document.getElementById('cfg-skipA');if(sa)CFG.skipDiscountOnA=sa.checked;
+  var mb=document.getElementById('cfg-markupBuffer');if(mb)CFG.markupBuffer=parseInt(mb.value)||15;
   localStorage.setItem(SETTINGS_KEY,JSON.stringify(CFG));
   closeModal('modal-settings');
   if(activeLotId) renderDetail();
@@ -511,6 +516,7 @@ function fillSettingsForm(){
   var pt=document.getElementById('cfg-profitTarget');if(pt)pt.value=CFG.profitTargetPct||60;
   var ss=document.getElementById('cfg-smallStock');if(ss)ss.value=CFG.smallStockQty||5;
   var sa=document.getElementById('cfg-skipA');if(sa)sa.checked=CFG.skipDiscountOnA!==false;
+  var mb=document.getElementById('cfg-markupBuffer');if(mb)mb.value=CFG.markupBuffer||15;
 }
 function openSettings(){fillSettingsForm();document.getElementById('modal-settings').style.display='flex';}
 
@@ -1034,6 +1040,7 @@ function openCreateLot(){
   document.getElementById('p-supplier').value='';
   document.getElementById('p-comment').value='';
   document.getElementById('p-total-units').value='';
+  document.getElementById('p-profit-target').value=CFG.profitTargetPct||60;
   cwGoTo(1);document.getElementById('modal-create').style.display='flex';
 }
 function cwNext1(){
@@ -1050,6 +1057,7 @@ function cwNext2(){
   if(!name){alert('Введите название');return;}
   if(!cost){alert('Введите стоимость лота');return;}
   var totalUnits=parseInt(document.getElementById('p-total-units').value)||0;
+  draft._profitTarget=parseFloat(document.getElementById('p-profit-target').value)||(CFG.profitTargetPct||60);
   var items=buildItems(draft.stock,draft.price,draft.sales,null);
   calcCosts(items,cost,totalUnits);
   enrichItems(items,document.getElementById('p-date').value);
@@ -1083,7 +1091,7 @@ function buildPreview(items,cost,weeks,totalUnits){
   }).join('');
 }
 function saveLot(){
-  var lot={id:uid(),name:document.getElementById('p-name').value.trim(),date:document.getElementById('p-date').value,cost:parseFloat(document.getElementById('p-cost').value)||0,totalUnits:draft._totalUnits||0,supplier:document.getElementById('p-supplier').value,comment:document.getElementById('p-comment').value,status:'active',items:draft._items,weeks:draft._weeks||[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+  var lot={id:uid(),name:document.getElementById('p-name').value.trim(),date:document.getElementById('p-date').value,cost:parseFloat(document.getElementById('p-cost').value)||0,totalUnits:draft._totalUnits||0,profitTarget:draft._profitTarget,supplier:document.getElementById('p-supplier').value,comment:document.getElementById('p-comment').value,status:'active',items:draft._items,weeks:draft._weeks||[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
   lots.unshift(lot);save();closeModal('modal-create');showPage('analytics',document.getElementById('tab-analytics'));
 }
 
@@ -1094,6 +1102,7 @@ function openUpdateLot(id){
   document.getElementById('upd-title').textContent='Обновить: '+l.name;
   document.getElementById('upd-cost').value=l.cost||'';
   document.getElementById('upd-total-units').value=l.totalUnits||'';
+  document.getElementById('upd-profit-target').value=(l.profitTarget!==undefined&&l.profitTarget!==null)?l.profitTarget:(CFG.profitTargetPct||60);
   ['stock','price','sales'].forEach(function(t){
     var b=document.getElementById('upd-box-'+t);b.classList.remove('done');b.style.borderColor='';
     var f=document.getElementById('upd-f-'+t);if(f)f.value='';
@@ -1111,6 +1120,7 @@ function applyUpdate(){
   calcCosts(items,newCost,newTotal);
   enrichItems(items,l.date);
   l.items=items;l.cost=newCost;l.totalUnits=newTotal;
+  var npt=parseFloat(document.getElementById('upd-profit-target').value);if(!isNaN(npt))l.profitTarget=npt;
   if(updDraft.sales)l.weeks=updDraft.sales.weeks;
   l.updatedAt=new Date().toISOString();
   save();closeModal('modal-update');openDetail(updDraft.lotId);
@@ -1137,7 +1147,19 @@ function metrics(l){
   var grossMarginPct=factRev>0?(grossProfit/factRev*100):0;
   var daysActive=l.date?Math.max(0,Math.floor((Date.now()-new Date(l.date))/(86400000))):0;
   var staleItems=l.items.filter(function(i){return(i.soldQty||0)===0&&daysActive>14;}).length;
-  return{totalQty:totalQty,soldQty:soldQty,factRev:factRev,planRev:planRev,grossProfit:grossProfit,costSoldTotal:costSoldTotal,remainQty:remainQty,soldPct:soldPct,recovery:recovery,netProfit:netProfit,grossMarginPct:grossMarginPct,daysActive:daysActive,staleItems:staleItems,effectiveCost:effectiveCost,fullCost:fullCost};
+  var lotAgeWeeks=l.date?Math.round(Math.max(0,(Date.now()-new Date(l.date))/(7*86400000))):0;
+  // НАЦЕНКА (справочно, от полных цен): (вся выручка по ценам − стоимость лота) / стоимость лота
+  var markup=fullCost>0?((planRev-fullCost)/fullCost*100):0;
+  // ПРОГНОЗ ИТОГОВОЙ НАЦЕНКИ: проданное по факту из 1С + остаток по текущей цене с постоянной скидкой
+  var remainRevAtCurrentPrice=l.items.reduce(function(s,i){
+    var rem=Math.max((i.qty||0)-(i.soldQty||0),0);
+    var curPrice=(i.hasDiscount&&i.discountPct>0)?(i.discountPrice||i.price):i.price;
+    return s+rem*curPrice;
+  },0);
+  var projectedRev=factRev+remainRevAtCurrentPrice;
+  var projectedMarkup=fullCost>0?((projectedRev-fullCost)/fullCost*100):0;
+  var profitTarget=(l.profitTarget!==undefined&&l.profitTarget!==null&&l.profitTarget!=='')?Number(l.profitTarget):(CFG.profitTargetPct||60);
+  return{totalQty:totalQty,soldQty:soldQty,factRev:factRev,planRev:planRev,grossProfit:grossProfit,costSoldTotal:costSoldTotal,remainQty:remainQty,soldPct:soldPct,recovery:recovery,netProfit:netProfit,grossMarginPct:grossMarginPct,lotAgeWeeks:lotAgeWeeks,markup:markup,projectedMarkup:projectedMarkup,projectedRev:projectedRev,profitTarget:profitTarget,daysActive:daysActive,staleItems:staleItems,effectiveCost:effectiveCost,fullCost:fullCost};
 }
 
 // ===== ADVISOR (умный советчик) =====
@@ -1152,6 +1174,14 @@ function buildAdvisor(l,m){
   var totalAvgMonth=l.items.reduce(function(s,i){return s+(i.avgPerMonth||0);},0);
   var forecastMonths=totalAvgMonth>0?(m.remainQty/totalAvgMonth):null;
   var lines=[];
+  // Наценка vs цель
+  var buf=CFG.markupBuffer||15;
+  var markupNote='';
+  if(m.projectedMarkup<m.profitTarget){
+    markupNote='<div style="color:var(--red);font-weight:600;margin-bottom:6px">⚠ Прогноз наценки '+pct(m.projectedMarkup)+' ниже цели +'+m.profitTarget+'%. Скидки уже увели прибыль ниже плановой — дальше скидывать только осознанно жертвуя целью.</div>';
+  } else if(m.projectedMarkup<m.profitTarget+buf){
+    markupNote='<div style="color:var(--yellow);margin-bottom:6px">Прогноз наценки '+pct(m.projectedMarkup)+' — запас над целью +'+m.profitTarget+'% почти исчерпан, осталось '+pct(m.projectedMarkup-m.profitTarget)+' пп на скидки.</div>';
+  }
   // Status determination
   var statusClass='status-yellow',statusIcon='🟡',statusText='';
   if(m.recovery>=100){
@@ -1181,7 +1211,7 @@ function buildAdvisor(l,m){
       adv+='При текущем темпе остаток продастся за '+fmtD(forecastMonths)+' мес — <span style="color:var(--orange)">это дольше остатка сезона ('+fmtD(monthsLeft)+' мес)</span>. ';
       adv+='Рекомендую <b>каскад акций</b>: лот окупился, можно давать скидки даже ниже себестоимости. ';
     }
-    adv+='При полной распродаже остатка выручка достигнет ~'+fmt(potentialRev)+' ₸ → прибыль <b style="color:var(--green)">+'+pct(potentialProfitPct)+'</b> к вложенному (цель +'+CFG.profitTargetPct+'%).';
+    adv+='При полной распродаже остатка выручка достигнет ~'+fmt(potentialRev)+' ₸ → прибыль <b style="color:var(--green)">+'+pct(potentialProfitPct)+'</b> к вложенному (цель +'+m.profitTarget+'%).';
   } else {
     adv='<b>Окупаемость '+pct(m.recovery)+'</b> ('+fmt(m.factRev)+' / '+fmt(m.fullCost)+' ₸). ';
     if(forecastMonths!==null){
@@ -1194,7 +1224,7 @@ function buildAdvisor(l,m){
     }
   }
   return '<div class="status-line '+statusClass+'">'+statusIcon+' '+statusText+'</div>'+
-    '<div class="advisor-box"><div class="advisor-title">💡 Рекомендация системы</div><div class="advisor-text">'+adv+'</div></div>';
+    '<div class="advisor-box"><div class="advisor-title">💡 Рекомендация системы</div><div class="advisor-text">'+markupNote+adv+'</div></div>';
 }
 
 
@@ -1336,7 +1366,6 @@ function renderDetail(){
       '<td style="text-align:right;color:var(--text2)" class="mono">'+fmt(item.costPer)+'</td>'+
       '<td style="text-align:right" class="mono'+(item.soldQty===0?' num-zero':'')+'">'+(item.soldQty||0)+'</td>'+
       '<td style="text-align:right;font-family:var(--mono)">'+(item.soldRev>0?fmt(item.soldRev):'—')+'</td>'+
-      '<td style="text-align:right;color:'+((item.grossProfit||0)>0?'var(--green)':'var(--red)')+'" class="mono">'+(item.soldQty>0?fmt(item.grossProfit):'—')+'</td>'+
       '<td style="text-align:right" class="mono">'+(item.soldQty>0?fmtD(item.avgPerMonth):'—')+'</td>'+
       '<td style="text-align:right" class="'+covCls+' mono">'+(item.coverMonths!==null&&item.soldQty>0?fmtD(item.coverMonths)+'м':'—')+'</td>'+
       '<td style="text-align:center"><button class="btn btn-ghost btn-sm" style="font-size:13px;padding:2px 6px" onclick="openItemStats(\''+item.id+'\')" title="Статистика продаж">📈</button></td>'+
@@ -1370,8 +1399,14 @@ function renderDetail(){
     '<div class="stat-card"><div class="stat-lbl">Выручка факт</div><div class="stat-val" style="color:var(--accent)">'+fmt(m.factRev)+' ₸</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Окупаемость</div><div class="stat-val" style="color:'+(m.recovery>=100?'var(--green)':m.recovery>50?'var(--yellow)':'var(--text)')+'">'+(m.fullCost>0?pct(m.recovery):'—')+'</div><div class="stat-sub">'+fmt(m.factRev)+' / '+fmt(m.fullCost)+'</div></div>'+
     '<div class="stat-card" style="border-color:'+netColor+'"><div class="stat-lbl">Чистая прибыль</div><div class="stat-val" style="color:'+netColor+'">'+(m.netProfit>=0?'+':'')+fmt(m.netProfit)+' ₸</div><div class="stat-sub">выручка − стоимость лота</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Вал. прибыль</div><div class="stat-val" style="color:'+(m.grossProfit>0?'var(--green)':'var(--red)')+'">'+fmt(m.grossProfit)+' ₸</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Маржа лота</div><div class="stat-val" style="color:'+(m.planMarginLot>=CFG.targetMargin?'var(--green)':m.planMarginLot>30?'var(--yellow)':'var(--red)')+'">'+pct(m.planMarginLot)+'</div><div class="stat-sub">план · факт '+(m.factRev>0?pct(m.grossMarginPct):'—')+'</div></div>'+
+    '<div class="stat-card"><div class="stat-lbl">Наценка</div><div class="stat-val">'+pct(m.markup)+'</div><div class="stat-sub">от цен к стоимости лота</div></div>'+
+    (function(){
+      var buf=CFG.markupBuffer||15;
+      var pm=m.projectedMarkup;var tgt=m.profitTarget;
+      var col=pm>=tgt+buf?'var(--green)':pm>=tgt?'var(--yellow)':'var(--red)';
+      var note=pm>=tgt+buf?'есть запас на скидки':pm>=tgt?'запас тает':'ниже цели — скидки съели прибыль';
+      return '<div class="stat-card" style="border-color:'+col+'"><div class="stat-lbl">Прогноз наценки</div><div class="stat-val" style="color:'+col+'">'+pct(pm)+'</div><div class="stat-sub">цель +'+tgt+'% · '+note+'</div></div>';
+    })()+
     '<div class="stat-card"><div class="stat-lbl">Продано</div><div class="stat-val">'+pct(m.soldPct)+'</div><div class="progress-bar-wrap" style="margin-top:5px"><div class="progress-bar" style="width:'+Math.min(m.soldPct,100)+'%;background:'+(m.soldPct>=80?'var(--green)':m.soldPct>40?'var(--yellow)':'var(--accent)')+'"></div></div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Остаток</div><div class="stat-val">'+m.remainQty+' шт</div></div>'+
     '</div>'+
@@ -1396,7 +1431,7 @@ function renderDetail(){
     '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">'+chips+'</div>'+
     bulkBar+
     '<div style="overflow-x:auto"><table><thead>'+
-    '<tr><th class="checkbox-cell"></th>'+thS('name','Наименование')+thS('qty','Ост.')+thS('price','Цена')+thS('costPer','Себест.')+thS('soldQty','Прод.')+thS('soldRev','Выр.₸')+thS('grossProfit','Вал.пр.₸')+thS('avgPerMonth','Ср/мес')+thS('coverMonths','Запас')+'<th>График</th>'+thS('_abcd','ABCD')+'<th>🏷</th></tr>'+
+    '<tr><th class="checkbox-cell"></th>'+thS('name','Наименование')+thS('qty','Ост.')+thS('price','Цена')+thS('costPer','Себест.')+thS('soldQty','Прод.')+thS('soldRev','Выр.₸')+thS('avgPerMonth','Ср/мес')+thS('coverMonths','Запас')+'<th>График</th>'+thS('_abcd','ABCD')+'<th>🏷</th></tr>'+
     '</thead><tbody>'+tableRows+'</tbody></table></div></div>'+
 
     '<div class="detail-panel" id="dtab-disc">'+discTabHTML+'</div>'+
@@ -1418,13 +1453,13 @@ function buildTopTab(l,totalRev,totalGP){
     var share=totalRev>0?(item.soldRev/totalRev*100):0;
     topRev+='<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><div style="font-size:10px;color:var(--text3);font-family:var(--mono);width:16px">'+(idx+1)+'</div><div style="flex:1;font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+item.name+'</div><div style="text-align:right;flex-shrink:0"><div style="font-size:11px;font-family:var(--mono);color:var(--accent)">'+fmt(item.soldRev)+' ₸</div><div style="font-size:9px;color:var(--text3)">'+pct(share)+'</div></div></div>';
   });
-  var topGP='';l.items.filter(function(i){return(i.grossProfit||0)>0;}).sort(function(a,b){return(b.grossProfit||0)-(a.grossProfit||0);}).slice(0,10).forEach(function(item,idx){
-    var share=totalGP>0?(item.grossProfit/totalGP*100):0;
-    topGP+='<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><div style="font-size:10px;color:var(--text3);font-family:var(--mono);width:16px">'+(idx+1)+'</div><div style="flex:1;font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+item.name+'</div><div style="text-align:right;flex-shrink:0"><div style="font-size:11px;font-family:var(--mono);color:var(--green)">'+fmt(item.grossProfit)+' ₸</div><div style="font-size:9px;color:var(--text3)">'+pct(share)+'</div></div></div>';
+  var topGP='';l.items.filter(function(i){return(i.soldQty||0)>0;}).sort(function(a,b){return(b.soldQty||0)-(a.soldQty||0);}).slice(0,10).forEach(function(item,idx){
+    var sp=item.qty>0?(item.soldQty/item.qty*100):0;
+    topGP+='<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><div style="font-size:10px;color:var(--text3);font-family:var(--mono);width:16px">'+(idx+1)+'</div><div style="flex:1;font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+item.name+'</div><div style="text-align:right;flex-shrink:0"><div style="font-size:11px;font-family:var(--mono);color:var(--green)">'+item.soldQty+' шт</div><div style="font-size:9px;color:var(--text3)">'+pct(sp)+' продано</div></div></div>';
   });
   return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+
     '<div style="background:var(--surface2);border-radius:10px;padding:14px"><div class="lbl" style="margin-bottom:8px">🏆 Топ-10 по выручке</div>'+(topRev||'<div style="color:var(--text3);font-size:11px;text-align:center;padding:20px">Нет данных</div>')+'</div>'+
-    '<div style="background:var(--surface2);border-radius:10px;padding:14px"><div class="lbl" style="margin-bottom:8px">💰 Топ-10 по вал. прибыли</div>'+(topGP||'<div style="color:var(--text3);font-size:11px;text-align:center;padding:20px">Нет данных</div>')+'</div>'+
+    '<div style="background:var(--surface2);border-radius:10px;padding:14px"><div class="lbl" style="margin-bottom:8px">📦 Топ-10 по штукам</div>'+(topGP||'<div style="color:var(--text3);font-size:11px;text-align:center;padding:20px">Нет данных</div>')+'</div>'+
     '</div>';
 }
 
@@ -2051,6 +2086,7 @@ function renderAnalytics(){
   var tCost=lots.reduce(function(s,l){return s+(l.cost||0);},0);
   var tFact=lots.reduce(function(s,l){return s+metrics(l).factRev;},0);
   var tGP=lots.reduce(function(s,l){return s+metrics(l).grossProfit;},0);
+  var tProjProfit=lots.reduce(function(s,l){var mm=metrics(l);return s+(mm.projectedRev-mm.fullCost);},0);
   var tNet=lots.reduce(function(s,l){return s+metrics(l).netProfit;},0);
   var tRemain=lots.reduce(function(s,l){return s+metrics(l).remainQty;},0);
   var tStale=lots.reduce(function(s,l){return s+metrics(l).staleItems;},0);
@@ -2061,8 +2097,8 @@ function renderAnalytics(){
     '<div class="stat-card"><div class="stat-lbl">Стоимость лотов</div><div class="stat-val">'+fmt(tCost)+' ₸</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Выручка</div><div class="stat-val" style="color:var(--accent)">'+fmt(tFact)+' ₸</div></div>'+
     '<div class="stat-card" style="border-color:'+netColor+'"><div class="stat-lbl">Чистая прибыль</div><div class="stat-val" style="color:'+netColor+'">'+(tNet>=0?'+':'')+fmt(tNet)+' ₸</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Вал. прибыль</div><div class="stat-val" style="color:'+(tGP>0?'var(--green)':'var(--red)')+'">'+fmt(tGP)+' ₸</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Ср. вал. маржа</div><div class="stat-val" style="color:'+(avgGM>=CFG.targetMargin?'var(--green)':avgGM>0?'var(--yellow)':'var(--text3)')+'">'+pct(avgGM)+'</div></div>'+
+    '<div class="stat-card"><div class="stat-lbl">Прогноз прибыли</div><div class="stat-val" style="color:'+(tProjProfit>=0?'var(--green)':'var(--red)')+'">'+(tProjProfit>=0?'+':'')+fmt(tProjProfit)+' ₸</div><div class="stat-sub">если всё продать по тек. ценам</div></div>'+
+
     '<div class="stat-card"><div class="stat-lbl">Остаток шт</div><div class="stat-val">'+tRemain+'</div></div>'+
     (tStale>0?'<div class="stat-card" style="border-color:var(--red)"><div class="stat-lbl" style="color:var(--red)">Залежалых</div><div class="stat-val" style="color:var(--red)">'+tStale+'</div></div>':'')+
     '</div>'+
