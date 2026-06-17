@@ -1254,6 +1254,12 @@ function renderLots(){
       '<div class="lot-metric"><div class="lot-metric-lbl">Выручка</div><div class="lot-metric-val" style="color:var(--accent)">'+fmt(m.factRev)+' ₸</div></div>'+
       '<div class="lot-metric"><div class="lot-metric-lbl">Окупаемость</div><div class="lot-metric-val" style="color:'+(m.recovery>=100?'var(--green)':m.recovery>50?'var(--yellow)':'var(--text)')+'">'+(l.cost>0?pct(m.recovery):'—')+'</div></div>'+
       '<div class="lot-metric"><div class="lot-metric-lbl">Чистая прибыль</div><div class="lot-metric-val" style="color:'+netColor+'">'+(m.netProfit>=0?'+':'')+fmt(m.netProfit)+' ₸</div></div>'+
+      '<div class="lot-metric"><div class="lot-metric-lbl">Наценка</div><div class="lot-metric-val">'+(l.cost>0?pct(m.markup):'—')+'</div></div>'+
+      (function(){
+        var buf=CFG.markupBuffer||15;var pm=m.projectedMarkup;var tgt=m.profitTarget;
+        var col=pm>=tgt+buf?'var(--green)':pm>=tgt?'var(--yellow)':'var(--red)';
+        return '<div class="lot-metric" style="border-color:'+col+'"><div class="lot-metric-lbl">Прогноз наценки</div><div class="lot-metric-val" style="color:'+col+'">'+(l.cost>0?pct(pm):'—')+'</div><div style="font-size:8px;color:var(--text3)">цель +'+tgt+'%</div></div>';
+      })()+
       (m.staleItems>0?'<div class="lot-metric" style="border-color:var(--red)"><div class="lot-metric-lbl" style="color:var(--red)">Залежалых</div><div class="lot-metric-val" style="color:var(--red)">'+m.staleItems+'</div></div>':'')+
       (activePromoCount>0?'<div class="lot-metric" style="border-color:var(--teal)"><div class="lot-metric-lbl" style="color:var(--teal)">Акций</div><div class="lot-metric-val" style="color:var(--teal)">'+activePromoCount+'</div></div>':'')+
       '</div></div>';
