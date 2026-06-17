@@ -233,6 +233,10 @@ tr:hover td{background:#1a2030}
       <div><div class="lbl">Всего единиц в лоте <span style="font-size:9px;color:var(--text3)">(полный объём)</span></div><input class="inp" id="p-total-units" type="number" placeholder="пусто если неизвестно"></div>
       <div><div class="lbl">Цель прибыли к стоимости лота, % <span class="tag-req">обяз</span></div><input class="inp" id="p-profit-target" type="number" placeholder="напр. 70"></div>
     </div>
+    <div class="grid2" style="margin-bottom:10px">
+      <div><div class="lbl">Продать до <span style="font-size:9px;color:var(--text3)">(дедлайн распродажи)</span></div><input class="inp" id="p-sell-by" type="date"></div>
+      <div><div class="lbl">&nbsp;</div><div style="display:flex;align-items:center;gap:8px;height:38px"><input type="checkbox" id="p-second-season" style="width:15px;height:15px"><label for="p-second-season" style="font-size:11px;color:var(--text2)">Остатки прошлого сезона</label></div></div>
+    </div>
     <div style="margin-bottom:10px"><div class="lbl">Комментарий</div><input class="inp" id="p-comment"></div>
     <div id="p-info" style="font-size:11px;color:var(--text2);background:var(--surface2);border-radius:8px;padding:9px 13px"></div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="cwGoTo(1)">← Назад</button><button class="btn btn-primary" onclick="cwNext2()">Рассчитать →</button></div>
@@ -271,6 +275,10 @@ tr:hover td{background:#1a2030}
     <div><div class="lbl">Всего единиц в лоте</div><input class="inp" id="upd-total-units" type="number" placeholder="полный объём"></div>
   </div>
   <div style="margin-bottom:10px"><div class="lbl">Цель прибыли к стоимости лота, %</div><input class="inp" id="upd-profit-target" type="number"></div>
+  <div class="grid2" style="margin-bottom:10px">
+    <div><div class="lbl">Продать до</div><input class="inp" id="upd-sell-by" type="date"></div>
+    <div><div class="lbl">&nbsp;</div><div style="display:flex;align-items:center;gap:8px;height:38px"><input type="checkbox" id="upd-second-season" style="width:15px;height:15px"><label for="upd-second-season" style="font-size:11px;color:var(--text2)">Остатки прошлого сезона</label></div></div>
+  </div>
   <div id="upd-summary" style="font-size:11px;color:var(--text2);background:var(--surface2);border-radius:8px;padding:9px 13px;min-height:32px;margin-bottom:10px"></div>
   <div style="display:flex;gap:8px;justify-content:flex-end">
     <button class="btn btn-ghost" onclick="closeModal('modal-update')">Отмена</button>
@@ -386,6 +394,7 @@ tr:hover td{background:#1a2030}
         <label style="font-size:10px">Не скидывать группу A</label>
         <div style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="cfg-skipA" style="width:14px;height:14px"><label for="cfg-skipA" style="font-size:10px;color:var(--text2)">продаётся сама</label></div>
         <label style="font-size:10px">Запас наценки на скидки</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-markupBuffer" type="number" min="0" max="100" style="width:55px"> пп</div>
+        <label style="font-size:10px">Темп продаж по последним</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-recentWeeks" type="number" min="2" max="52" style="width:55px"> нед</div>
 
       </div>
     </div>
@@ -474,7 +483,9 @@ const DEF_CFG={
   profitTargetPct:60,
   smallStockQty:5,
   skipDiscountOnA:true,
-  markupBuffer:15
+  markupBuffer:15,
+  recentWeeks:8,
+  secondSeasonBoost:1.5
 };
 let CFG=Object.assign({},DEF_CFG);
 function loadSettings(){try{const s=localStorage.getItem(SETTINGS_KEY);if(s)CFG=Object.assign({},DEF_CFG,JSON.parse(s));}catch(e){}}
@@ -499,6 +510,7 @@ function saveSettings(){
   var ss=document.getElementById('cfg-smallStock');if(ss)CFG.smallStockQty=parseInt(ss.value)||5;
   var sa=document.getElementById('cfg-skipA');if(sa)CFG.skipDiscountOnA=sa.checked;
   var mb=document.getElementById('cfg-markupBuffer');if(mb)CFG.markupBuffer=parseInt(mb.value)||15;
+  var rw=document.getElementById('cfg-recentWeeks');if(rw)CFG.recentWeeks=parseInt(rw.value)||8;
   localStorage.setItem(SETTINGS_KEY,JSON.stringify(CFG));
   closeModal('modal-settings');
   if(activeLotId) renderDetail();
@@ -517,6 +529,7 @@ function fillSettingsForm(){
   var ss=document.getElementById('cfg-smallStock');if(ss)ss.value=CFG.smallStockQty||5;
   var sa=document.getElementById('cfg-skipA');if(sa)sa.checked=CFG.skipDiscountOnA!==false;
   var mb=document.getElementById('cfg-markupBuffer');if(mb)mb.value=CFG.markupBuffer||15;
+  var rw=document.getElementById('cfg-recentWeeks');if(rw)rw.value=CFG.recentWeeks||8;
 }
 function openSettings(){fillSettingsForm();document.getElementById('modal-settings').style.display='flex';}
 
@@ -703,15 +716,30 @@ function getABCDMap(items){
 }
 function enrichItems(items,lotDate){
   var now=new Date();
+  var recentN=CFG.recentWeeks||8;
   items.forEach(function(i){
-    var totalWeeks=Math.max((i.weeks||[]).length,1);
+    var wks=i.weeks||[];
+    var totalWeeks=Math.max(wks.length,1);
+    // Темп за всю историю
     i.avgPerWeek=i.soldQty/totalWeeks;
     i.avgPerMonth=i.avgPerWeek*4;
+    // Темп по последним N неделям (актуально как продаётся СЕЙЧАС)
+    // Берём последние N недель только если история длиннее N, иначе всю историю
+    if(wks.length>recentN){
+      var recent=wks.slice(-recentN);
+      var recentQty=recent.reduce(function(s,w){return s+(w.qty||0);},0);
+      i.recentAvgWeek=recentQty/recentN;
+      i.recentAvgMonth=i.recentAvgWeek*4;
+    } else {
+      i.recentAvgWeek=i.avgPerWeek;
+      i.recentAvgMonth=i.avgPerMonth;
+    }
     var start=new Date(i.firstSeenDate||lotDate||now);
     i.daysOnShelf=Math.max(0,Math.floor((now-start)/86400000));
     i.weeksOnShelf=Math.round(i.daysOnShelf/7);
     var remain=Math.max(i.qty-(i.soldQty||0),0);
-    i.coverMonths=i.avgPerMonth>0?(remain/i.avgPerMonth):null;
+    // Запас считаем по актуальному темпу (последние недели)
+    i.coverMonths=i.recentAvgMonth>0?(remain/i.recentAvgMonth):null;
     i.hadPromo=(i.promoHistory||[]).length>0;
     i.inActivePromo=(i.activePromos||[]).length>0;
   });
@@ -778,15 +806,20 @@ function estimatePromoPeriod(item,discPct){
   return{days:days,willSell:willSell,learned:learned?learned.n:0};
 }
 
-function calcRecommendedDiscount(item,lotDate,lotRecovered){
+function calcRecommendedDiscount(item,lot,lotRecovered){
+  // lot может быть объектом лота или (для совместимости) строкой-датой
+  var lotObj=(typeof lot==='object'&&lot!==null)?lot:null;
+  var secondSeason=lotObj?!!lotObj.secondSeason:false;
+  // Дедлайн распродажи: индивидуальный sellBy лота, иначе глобальный seasonEnd
+  var sellBy=(lotObj&&lotObj.sellBy)?lotObj.sellBy:(CFG.seasonEnd||'');
   var remain=Math.max((item.qty||0)-(item.soldQty||0),0);
   if(remain<=0)return{disc:0,reason:'Продано',escalate:false,discPrice:0,monthsLeft:null,forecast:null,isPromoCandidate:false,isLiquidate:false};
   // Маленький остаток + нет продаж = слить, а не акция
   var smallStock=CFG.smallStockQty||5;
   var isLiquidate=false;
   var monthsLeft=null;
-  if(CFG.seasonEnd){
-    var end=new Date(CFG.seasonEnd);var now=new Date();
+  if(sellBy){
+    var end=new Date(sellBy);var now=new Date();
     monthsLeft=Math.max(0,(end-now)/(30*24*3600*1000));
   }
   var recDisc=0,reason='',escalate=false,isPromoCandidate=false;
@@ -799,21 +832,25 @@ function calcRecommendedDiscount(item,lotDate,lotRecovered){
     reason=recDisc>0?('Нет продаж уже '+weeks+' нед.'):'Новинка — пока не трогаем';
     if(recDisc>=30)isPromoCandidate=true;
     // Маленький остаток без продаж — слить, не делать акцию
-    if(remain<=smallStock&&recDisc>0&&weeks>=(CFG.age2||8)){
+    var liqAge=secondSeason?(CFG.age1||4):(CFG.age2||8);
+    if(remain<=smallStock&&recDisc>0&&weeks>=liqAge){
       isLiquidate=true;isPromoCandidate=false;
       reason='Мало осталось ('+remain+' шт), не продаётся '+weeks+' нед — слить остаток';
       if(lotRecovered){recDisc=Math.max(recDisc,50);}
     }
-  } else if(monthsLeft!==null&&item.avgPerMonth>0){
-    var forecast=remain/item.avgPerMonth;
+  } else if(monthsLeft!==null&&(item.recentAvgMonth||item.avgPerMonth)>0){
+    // Темп по последним неделям (как продаётся сейчас), а не за всю историю
+    var tempo=item.recentAvgMonth||item.avgPerMonth;
+    var forecast=remain/tempo;
     var ratio=monthsLeft>0?(forecast/monthsLeft):99;
     var thresholds=CFG.discThresholds||[1.0,1.3,1.7,2.5,4.0,6.0,10.0];
     var rates2=CFG.discRates||[0,10,20,30,40,50,60,70];
     var idx2=0;for(var i=0;i<thresholds.length;i++){if(ratio>=thresholds[i])idx2=i+1;}
+    // Остатки прошлого сезона — на ступень агрессивнее (сдвиг шкалы вверх)
+    if(secondSeason&&idx2>0)idx2=Math.min(idx2+1,rates2.length-1);
     recDisc=rates2[Math.min(idx2,rates2.length-1)]||0;
     if(recDisc>0){
-      reason='Остаток распродастся за '+forecast.toFixed(1)+' мес, до конца сезона '+monthsLeft.toFixed(1)+' мес — отстаёт в '+ratio.toFixed(1)+' раза';
-
+      reason='Остаток распродастся за '+forecast.toFixed(1)+' мес, до дедлайна '+monthsLeft.toFixed(1)+' мес — отстаёт в '+ratio.toFixed(1)+' раза'+(secondSeason?' · прошлый сезон (+ступень)':'');
       if(recDisc>=30)isPromoCandidate=true;
     }
   }
@@ -827,7 +864,7 @@ function calcRecommendedDiscount(item,lotDate,lotRecovered){
     var maxDisc=Math.max(0,Math.floor((1-minPrice/item.price)*100));
     if(recDisc>maxDisc){finalDisc=maxDisc;priceWarning='Ограничено себестоимостью: макс. '+maxDisc+'%';}
   }
-  var forecastVal=(item.avgPerMonth>0&&item.soldQty>0)?Math.max(remain/item.avgPerMonth,0):null;
+  var forecastVal=((item.recentAvgMonth||item.avgPerMonth)>0&&item.soldQty>0)?Math.max(remain/(item.recentAvgMonth||item.avgPerMonth),0):null;
   // Не предлагать скидку на A-позиции по выручке (продаются сами) - если не слив
   var skipA=false;
   if(CFG.skipDiscountOnA!==false&&item._abcd==='A'&&!isLiquidate&&finalDisc>0&&finalDisc<30){
@@ -841,7 +878,7 @@ function applyDiscount(itemId){
   var l=lots.find(function(x){return x.id===activeLotId;});if(!l)return;
   var item=l.items.find(function(i){return i.id===itemId;});if(!item)return;
   enrichItems([item],l.date);item._abcd=getABCDMap(l.items)[item.id]||'D';
-  var m=metrics(l);var rec=calcRecommendedDiscount(item,l.date,m.recovery>=100);
+  var m=metrics(l);var rec=calcRecommendedDiscount(item,l,m.recovery>=100);
   if(rec.disc===0){alert('Скидка не нужна');return;}
   if(!item.discountHistory)item.discountHistory=[];
   if(item.discountPct>0)item.discountHistory.push({disc:item.discountPct,date:item.discountSetDate||'',price:item.discountPrice||0});
@@ -860,7 +897,7 @@ function applyAllDiscounts(lotId){
   var abcdMap=getABCDMap(l.items);l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';});
   var m=metrics(l);var applied=0;
   l.items.forEach(function(i){
-    var rec=calcRecommendedDiscount(i,l.date,m.recovery>=100);
+    var rec=calcRecommendedDiscount(i,l,m.recovery>=100);
     if(rec.disc===0||rec.isPromoCandidate)return;
     if(!i.discountHistory)i.discountHistory=[];
     if(i.discountPct>0)i.discountHistory.push({disc:i.discountPct,date:i.discountSetDate||'',price:i.discountPrice||0});
@@ -1041,6 +1078,8 @@ function openCreateLot(){
   document.getElementById('p-comment').value='';
   document.getElementById('p-total-units').value='';
   document.getElementById('p-profit-target').value=CFG.profitTargetPct||60;
+  document.getElementById('p-sell-by').value=CFG.seasonEnd||'';
+  document.getElementById('p-second-season').checked=false;
   cwGoTo(1);document.getElementById('modal-create').style.display='flex';
 }
 function cwNext1(){
@@ -1058,6 +1097,8 @@ function cwNext2(){
   if(!cost){alert('Введите стоимость лота');return;}
   var totalUnits=parseInt(document.getElementById('p-total-units').value)||0;
   draft._profitTarget=parseFloat(document.getElementById('p-profit-target').value)||(CFG.profitTargetPct||60);
+  draft._sellBy=document.getElementById('p-sell-by').value||'';
+  draft._secondSeason=document.getElementById('p-second-season').checked;
   var items=buildItems(draft.stock,draft.price,draft.sales,null);
   calcCosts(items,cost,totalUnits);
   enrichItems(items,document.getElementById('p-date').value);
@@ -1091,7 +1132,7 @@ function buildPreview(items,cost,weeks,totalUnits){
   }).join('');
 }
 function saveLot(){
-  var lot={id:uid(),name:document.getElementById('p-name').value.trim(),date:document.getElementById('p-date').value,cost:parseFloat(document.getElementById('p-cost').value)||0,totalUnits:draft._totalUnits||0,profitTarget:draft._profitTarget,supplier:document.getElementById('p-supplier').value,comment:document.getElementById('p-comment').value,status:'active',items:draft._items,weeks:draft._weeks||[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+  var lot={id:uid(),name:document.getElementById('p-name').value.trim(),date:document.getElementById('p-date').value,cost:parseFloat(document.getElementById('p-cost').value)||0,totalUnits:draft._totalUnits||0,profitTarget:draft._profitTarget,sellBy:draft._sellBy||'',secondSeason:draft._secondSeason||false,supplier:document.getElementById('p-supplier').value,comment:document.getElementById('p-comment').value,status:'active',items:draft._items,weeks:draft._weeks||[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
   lots.unshift(lot);save();closeModal('modal-create');showPage('analytics',document.getElementById('tab-analytics'));
 }
 
@@ -1103,6 +1144,8 @@ function openUpdateLot(id){
   document.getElementById('upd-cost').value=l.cost||'';
   document.getElementById('upd-total-units').value=l.totalUnits||'';
   document.getElementById('upd-profit-target').value=(l.profitTarget!==undefined&&l.profitTarget!==null)?l.profitTarget:(CFG.profitTargetPct||60);
+  document.getElementById('upd-sell-by').value=l.sellBy||CFG.seasonEnd||'';
+  document.getElementById('upd-second-season').checked=!!l.secondSeason;
   ['stock','price','sales'].forEach(function(t){
     var b=document.getElementById('upd-box-'+t);b.classList.remove('done');b.style.borderColor='';
     var f=document.getElementById('upd-f-'+t);if(f)f.value='';
@@ -1121,6 +1164,8 @@ function applyUpdate(){
   enrichItems(items,l.date);
   l.items=items;l.cost=newCost;l.totalUnits=newTotal;
   var npt=parseFloat(document.getElementById('upd-profit-target').value);if(!isNaN(npt))l.profitTarget=npt;
+  l.sellBy=document.getElementById('upd-sell-by').value||'';
+  l.secondSeason=document.getElementById('upd-second-season').checked;
   if(updDraft.sales)l.weeks=updDraft.sales.weeks;
   l.updatedAt=new Date().toISOString();
   save();closeModal('modal-update');openDetail(updDraft.lotId);
@@ -1148,16 +1193,18 @@ function metrics(l){
   var daysActive=l.date?Math.max(0,Math.floor((Date.now()-new Date(l.date))/(86400000))):0;
   var staleItems=l.items.filter(function(i){return(i.soldQty||0)===0&&daysActive>14;}).length;
   var lotAgeWeeks=l.date?Math.round(Math.max(0,(Date.now()-new Date(l.date))/(7*86400000))):0;
-  // НАЦЕНКА (справочно, от полных цен): (вся выручка по ценам − стоимость лота) / стоимость лота
-  var markup=fullCost>0?((planRev-fullCost)/fullCost*100):0;
-  // ПРОГНОЗ ИТОГОВОЙ НАЦЕНКИ: проданное по факту из 1С + остаток по текущей цене с постоянной скидкой
+  // НАЦЕНКА (справочно, от полных цен): считается от ДОЛИ стоимости на оприходованное (effectiveCost),
+  // т.к. лот грузится партиями и цены известны только на загруженное
+  var markup=effectiveCost>0?((planRev-effectiveCost)/effectiveCost*100):0;
+  // ПРОГНОЗ ИТОГОВОЙ НАЦЕНКИ: проданное по факту из 1С + остаток по текущей цене с постоянной скидкой,
+  // тоже от доли стоимости на оприходованное
   var remainRevAtCurrentPrice=l.items.reduce(function(s,i){
     var rem=Math.max((i.qty||0)-(i.soldQty||0),0);
     var curPrice=(i.hasDiscount&&i.discountPct>0)?(i.discountPrice||i.price):i.price;
     return s+rem*curPrice;
   },0);
   var projectedRev=factRev+remainRevAtCurrentPrice;
-  var projectedMarkup=fullCost>0?((projectedRev-fullCost)/fullCost*100):0;
+  var projectedMarkup=effectiveCost>0?((projectedRev-effectiveCost)/effectiveCost*100):0;
   var profitTarget=(l.profitTarget!==undefined&&l.profitTarget!==null&&l.profitTarget!=='')?Number(l.profitTarget):(CFG.profitTargetPct||60);
   return{totalQty:totalQty,soldQty:soldQty,factRev:factRev,planRev:planRev,grossProfit:grossProfit,costSoldTotal:costSoldTotal,remainQty:remainQty,soldPct:soldPct,recovery:recovery,netProfit:netProfit,grossMarginPct:grossMarginPct,lotAgeWeeks:lotAgeWeeks,markup:markup,projectedMarkup:projectedMarkup,projectedRev:projectedRev,profitTarget:profitTarget,daysActive:daysActive,staleItems:staleItems,effectiveCost:effectiveCost,fullCost:fullCost};
 }
@@ -1165,13 +1212,14 @@ function metrics(l){
 // ===== ADVISOR (умный советчик) =====
 function buildAdvisor(l,m){
   var monthsLeft=null,weeksLeft=null;
-  if(CFG.seasonEnd){
-    var end=new Date(CFG.seasonEnd);var now=new Date();
+  var sellBy=l.sellBy||CFG.seasonEnd||'';
+  if(sellBy){
+    var end=new Date(sellBy);var now=new Date();
     monthsLeft=Math.max(0,(end-now)/(30*24*3600*1000));
     weeksLeft=Math.max(0,Math.round((end-now)/(7*24*3600*1000)));
   }
   enrichItems(l.items,l.date);
-  var totalAvgMonth=l.items.reduce(function(s,i){return s+(i.avgPerMonth||0);},0);
+  var totalAvgMonth=l.items.reduce(function(s,i){return s+(i.recentAvgMonth||i.avgPerMonth||0);},0);
   var forecastMonths=totalAvgMonth>0?(m.remainQty/totalAvgMonth):null;
   var lines=[];
   // Наценка vs цель
@@ -1208,7 +1256,7 @@ function buildAdvisor(l,m){
     var potentialProfitPct=m.fullCost>0?(potentialProfit/m.fullCost*100):0;
     adv='<b>✅ Лот окупился ('+pct(m.recovery)+').</b> Остаток '+m.remainQty+' шт. До конца сезона '+weeksLeft+' нед.<br>';
     if(forecastMonths!==null&&forecastMonths>monthsLeft){
-      adv+='При текущем темпе остаток продастся за '+fmtD(forecastMonths)+' мес — <span style="color:var(--orange)">это дольше остатка сезона ('+fmtD(monthsLeft)+' мес)</span>. ';
+      adv+='При текущем темпе остаток продастся за '+fmtD(forecastMonths)+' мес — <span style="color:var(--orange)">это дольше остатка до дедлайна ('+fmtD(monthsLeft)+' мес)</span>. ';
       adv+='Рекомендую <b>каскад акций</b>: лот окупился, можно давать скидки даже ниже себестоимости. ';
     }
     adv+='При полной распродаже остатка выручка достигнет ~'+fmt(potentialRev)+' ₸ → прибыль <b style="color:var(--green)">+'+pct(potentialProfitPct)+'</b> к вложенному (цель +'+m.profitTarget+'%).';
@@ -1216,14 +1264,15 @@ function buildAdvisor(l,m){
     adv='<b>Окупаемость '+pct(m.recovery)+'</b> ('+fmt(m.factRev)+' / '+fmt(m.fullCost)+' ₸). ';
     if(forecastMonths!==null){
       if(forecastMonths>monthsLeft){
-        adv+='Остаток '+m.remainQty+' шт продастся за <span style="color:var(--red)">'+fmtD(forecastMonths)+' мес</span> — дольше остатка сезона ('+fmtD(monthsLeft)+' мес). ';
-        adv+='<b>Нужны скидки и акции</b> чтобы ускорить. Проверьте вкладку «Скидки/Акции» — там '+l.items.filter(function(i){i._abcd=getABCDMap(l.items)[i.id];var rec=calcRecommendedDiscount(i,l.date,false);return rec.disc>0;}).length+' позиций требуют внимания.';
+        adv+='Остаток '+m.remainQty+' шт продастся за <span style="color:var(--red)">'+fmtD(forecastMonths)+' мес</span> — дольше остатка до дедлайна ('+fmtD(monthsLeft)+' мес). ';
+        adv+='<b>Нужны скидки и акции</b> чтобы ускорить. Проверьте вкладку «Скидки/Акции» — там '+l.items.filter(function(i){i._abcd=getABCDMap(l.items)[i.id];var rec=calcRecommendedDiscount(i,l,false);return rec.disc>0;}).length+' позиций требуют внимания.';
       } else {
-        adv+='Остаток продастся за '+fmtD(forecastMonths)+' мес — укладываемся в сезон ('+fmtD(monthsLeft)+' мес). Идём по графику.';
+        adv+='Остаток продастся за '+fmtD(forecastMonths)+' мес — укладываемся в срок ('+fmtD(monthsLeft)+' мес). Идём по графику.';
       }
     }
   }
-  return '<div class="status-line '+statusClass+'">'+statusIcon+' '+statusText+'</div>'+
+  var seasonBanner=l.secondSeason?'<div style="background:#3d2810;border:1px solid var(--orange);color:var(--orange);border-radius:8px;padding:7px 11px;font-size:11px;font-weight:600;margin-bottom:8px">🔁 Остатки прошлого сезона — приоритет на распродажу, скидки агрессивнее на ступень</div>':'';
+  return '<div class="status-line '+statusClass+'">'+statusIcon+' '+statusText+'</div>'+seasonBanner+
     '<div class="advisor-box"><div class="advisor-title">💡 Рекомендация системы</div><div class="advisor-text">'+markupNote+adv+'</div></div>';
 }
 
@@ -1240,7 +1289,7 @@ function renderLots(){
     enrichItems(l.items,l.date);
     var m=metrics(l);
     var activePromoCount=promos.filter(function(p){return p.lotId===l.id&&p.status==='active';}).length;
-    var badge=l.status==='closed'?'<span class="badge badge-closed">Закрыт</span>':m.soldPct>80?'<span class="badge" style="background:#3d2810;color:var(--orange)">Распродажа</span>':m.soldQty>0?'<span class="badge badge-lot">Продаётся</span>':'<span class="badge badge-S">Новый</span>';
+    var badge=(l.secondSeason?'<span class="badge" style="background:#3d2810;color:var(--orange)">🔁 прошлый сезон</span> ':'')+(l.status==='closed'?'<span class="badge badge-closed">Закрыт</span>':m.soldPct>80?'<span class="badge" style="background:#3d2810;color:var(--orange)">Распродажа</span>':m.soldQty>0?'<span class="badge badge-lot">Продаётся</span>':'<span class="badge badge-S">Новый</span>');
     var upd=l.updatedAt?new Date(l.updatedAt).toLocaleDateString('ru-RU'):'—';
     var netColor=m.netProfit>=0?'var(--green)':'var(--red)';
     html+='<div class="lot-card" onclick="openDetail(\''+l.id+'\')">'+
@@ -1314,7 +1363,7 @@ function renderDetail(){
   var staleItems=l.items.filter(function(i){return i.soldQty===0&&(i.weeksOnShelf||0)>CFG.age1;});
   var frozenCost=staleItems.reduce(function(s,i){return s+(i.costPer||0)*i.qty;},0);
   var lotRecovered=m.recovery>=100;
-  var discRecs={};l.items.forEach(function(i){discRecs[i.id]=calcRecommendedDiscount(i,l.date,lotRecovered);});
+  var discRecs={};l.items.forEach(function(i){discRecs[i.id]=calcRecommendedDiscount(i,l,lotRecovered);});
   var liquidateItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].isLiquidate&&!(i.activePromos||[]).length;});
   var discItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].disc>0&&!discRecs[i.id].isPromoCandidate&&!discRecs[i.id].isLiquidate&&!(i.activePromos||[]).length;});
   var promoItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].isPromoCandidate&&!discRecs[i.id].isLiquidate&&!(i.activePromos||[]).length;});
@@ -1396,7 +1445,7 @@ function renderDetail(){
 
   var html='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px">'+
     '<div style="flex:1"><div class="modal-title">'+l.name+'</div>'+
-    '<div style="font-size:11px;color:var(--text2)">'+(l.supplier||'—')+' · '+(l.date||'—')+' · '+l.items.length+' позиций · лот активен '+m.lotAgeWeeks+' нед'+(l.totalUnits?' · лот '+fmt(l.totalUnits)+' шт':'')+' · оприх. '+fmt(m.totalQty)+' шт</div></div>'+
+    '<div style="font-size:11px;color:var(--text2)">'+(l.supplier||'—')+' · '+(l.date||'—')+' · '+l.items.length+' позиций · лот активен '+m.lotAgeWeeks+' нед'+(l.totalUnits?' · лот '+fmt(l.totalUnits)+' шт':'')+' · оприх. '+fmt(m.totalQty)+' шт'+((l.sellBy)?' · продать до '+l.sellBy:'')+(l.secondSeason?' · <span style="color:var(--orange)">🔁 прошлый сезон</span>':'')+'</div></div>'+
     '<button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i></button>'+
     '<button class="btn btn-ghost btn-sm" onclick="closeModal(\'modal-detail\')"><i class="ti ti-x"></i></button></div>'+
 
@@ -1473,7 +1522,7 @@ function buildTopTab(l,totalRev,totalGP){
 // ===== DISC TAB =====
 function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,discRecs,liquidateItems){
   var html='';
-  if(!CFG.seasonEnd) html+='<div class="rec-box" style="background:#3d2810;border:1px solid var(--orange);color:var(--orange)"><b>⚠ Укажите дату конца сезона в настройках ⚙</b></div>';
+  if(!l.sellBy&&!CFG.seasonEnd) html+='<div class="rec-box" style="background:#3d2810;border:1px solid var(--orange);color:var(--orange)"><b>⚠ Укажите «Продать до» у лота или конец сезона в настройках ⚙</b></div>';
   html+='<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
     '<div class="stat-card"><div class="stat-lbl">Пост. скидки</div><div class="stat-val" style="color:var(--yellow)">'+discItems.length+'</div><div class="stat-sub">'+activeDiscItems.length+' активных</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">На акцию</div><div class="stat-val" style="color:var(--orange)">'+promoItems.length+'</div></div>'+
@@ -1666,7 +1715,7 @@ function confirmMoveToPromo(promoId){
   selectedItems.forEach(function(itemId){
     var item=l.items.find(function(i){return i.id===itemId;});if(!item)return;
     if(!promo.items.some(function(pi){return pi.itemId===itemId;})){
-      var rec=calcRecommendedDiscount(item,l.date,mm2.recovery>=100);
+      var rec=calcRecommendedDiscount(item,l,mm2.recovery>=100);
       var recDisc=rec.disc>0?rec.disc:(promo.discPct||0);
       promo.items.push({itemId:itemId,discPct:recDisc,gift:''});
       added++;
@@ -1692,7 +1741,7 @@ function moveAllPromoCandidates(){
   enrichItems(l.items,l.date);
   var abcdMap=getABCDMap(l.items);l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';});
   var m=metrics(l);
-  var cands=l.items.filter(function(i){var rec=calcRecommendedDiscount(i,l.date,m.recovery>=100);return rec.isPromoCandidate&&!(i.activePromos||[]).length;});
+  var cands=l.items.filter(function(i){var rec=calcRecommendedDiscount(i,l,m.recovery>=100);return rec.isPromoCandidate&&!(i.activePromos||[]).length;});
   if(!cands.length){alert('Нет кандидатов');return;}
   window._pendingPromoItems=cands.map(function(i){return i.id;});
   openCreatePromo(l.id);
@@ -1738,7 +1787,7 @@ function savePromoMeta(){
       window._pendingPromoItems.forEach(function(itemId){
         var item=l.items.find(function(i){return i.id===itemId;});
         var recDisc=30;
-        if(item){var rec=calcRecommendedDiscount(item,l.date,mm.recovery>=100);if(rec.disc>0)recDisc=rec.disc;}
+        if(item){var rec=calcRecommendedDiscount(item,l,mm.recovery>=100);if(rec.disc>0)recDisc=rec.disc;}
         promo.items.push({itemId:itemId,discPct:recDisc,gift:''});
         if(item){if(!item.activePromos)item.activePromos=[];if(item.activePromos.indexOf(promo.id)<0)item.activePromos.push(promo.id);}
       });
@@ -2054,7 +2103,7 @@ function buildAlerts(){
     var lotRecovered=m.recovery>=100;
     var critCount=0,promoCount=0,liqCount=0;
     l.items.forEach(function(i){
-      var rec=calcRecommendedDiscount(i,l.date,lotRecovered);
+      var rec=calcRecommendedDiscount(i,l,lotRecovered);
       if(rec.isLiquidate)liqCount++;
       else if(rec.isPromoCandidate)promoCount++;
       else if(rec.disc>0&&!rec.skipA)critCount++;
@@ -2094,7 +2143,7 @@ function renderAnalytics(){
   lots.forEach(function(l){
     var m=metrics(l);
     var activePromoCount=promos.filter(function(p){return p.lotId===l.id&&p.status==='active';}).length;
-    var badge=l.status==='closed'?'<span class="badge badge-closed">Закрыт</span>':m.soldPct>80?'<span class="badge" style="background:#3d2810;color:var(--orange)">Распродажа</span>':m.soldQty>0?'<span class="badge badge-lot">Продаётся</span>':'<span class="badge badge-S">Новый</span>';
+    var badge=(l.secondSeason?'<span class="badge" style="background:#3d2810;color:var(--orange)">🔁 прошлый сезон</span> ':'')+(l.status==='closed'?'<span class="badge badge-closed">Закрыт</span>':m.soldPct>80?'<span class="badge" style="background:#3d2810;color:var(--orange)">Распродажа</span>':m.soldQty>0?'<span class="badge badge-lot">Продаётся</span>':'<span class="badge badge-S">Новый</span>');
     var upd=l.updatedAt?new Date(l.updatedAt).toLocaleDateString('ru-RU'):'—';
     var nc=m.netProfit>=0?'var(--green)':'var(--red)';
     html+='<div class="lot-card" onclick="openDetail(\''+l.id+'\')">'+
