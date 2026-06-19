@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v32</title>
+<title>FBSM — Управление лотами v33</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -168,7 +168,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v32</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v33</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -2567,9 +2567,14 @@ function buildAlerts(){
     var lotRecovered=m.recovery>=100;
     var critCount=0,promoCount=0,liqCount=0,deepenCount=0;
     l.items.forEach(function(i){
+      if((i.qty||0)<=0)return; // распродано — не трогаем
+      if((i.activePromos||[]).length)return; // уже в акции
       var rec=calcRecommendedDiscount(i,l,lotRecovered);
-      // Скидка стоит, но не помогает — нужно углубить
-      if(i.hasDiscount&&i.discountPct>0&&rec.disc>i.discountPct&&(rec.escalate||rec.isLiquidate)){deepenCount++;}
+      // Скидка стоит, но не помогает И период оценки прошёл — нужно углубить
+      if(i.hasDiscount&&i.discountPct>0&&rec.disc>i.discountPct&&(rec.escalate||rec.isLiquidate)&&!rec.inEvalPeriod){deepenCount++;}
+      // Уже обработанные (есть скидка ИЛИ подтверждён слив) — НЕ считаем как требующие внимания
+      else if(i.isLiquidated){/* подтверждён слив — обработано */}
+      else if(i.hasDiscount&&i.discountPct>0){/* скидка стоит — обработано, ждём результат */}
       else if(rec.isLiquidate)liqCount++;
       else if(rec.isPromoCandidate)promoCount++;
       else if(rec.disc>0&&!rec.skipA)critCount++;
