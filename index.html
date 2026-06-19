@@ -399,6 +399,10 @@ tr:hover td{background:#1a2030}
         <label style="font-size:10px">Темп продаж по последним</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-recentWeeks" type="number" min="2" max="52" style="width:55px"> нед</div>
         <label style="font-size:10px">Постоянная скидка до (обычный лот)</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-promoThreshold" type="number" min="10" max="90" style="width:55px"> %</div>
         <label style="font-size:10px">Постоянная скидка до (прошлый сезон)</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-promoThresholdSecond" type="number" min="10" max="90" style="width:55px"> %</div>
+        <div style="grid-column:1/-1;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text2)">🪜 Лестница уценки для непродающегося товара (аутлет)</div>
+        <label style="font-size:10px">Недели без продаж (пороги)</label><input class="inp inp-sm" id="cfg-noSaleBreaks" type="text" placeholder="4, 7, 10, 12" style="width:120px">
+        <label style="font-size:10px">Скидки на порогах, %</label><input class="inp inp-sm" id="cfg-noSaleRates" type="text" placeholder="0, 15, 30, 50, 70" style="width:120px">
+        <label style="font-size:10px">Акция «не помогла» если продано &lt;</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-promoFail" type="number" min="1" max="50" style="width:55px"> % остатка</div>
 
       </div>
     </div>
@@ -482,8 +486,9 @@ const DEF_CFG={
   seasonEnd:'',minPriceMult:1.0,allowBelowCost:false,
   discThresholds:[1.0,1.3,1.7,2.5,4.0,6.0,10.0],
   discRates:[0,10,20,30,40,50,60,70],
-  noSaleDiscRates:[0,15,25,35,50],
-  noSaleAgeBreaks:[4,8,12,16],
+  noSaleDiscRates:[0,15,30,50,70],
+  noSaleAgeBreaks:[4,7,10,12],
+  promoFailThreshold:5,
   profitTargetPct:60,
   smallStockQty:5,
   skipDiscountOnA:true,
@@ -519,6 +524,9 @@ function saveSettings(){
   var rw=document.getElementById('cfg-recentWeeks');if(rw)CFG.recentWeeks=parseInt(rw.value)||8;
   var ptn=document.getElementById('cfg-promoThreshold');if(ptn)CFG.promoThreshold=parseInt(ptn.value)||30;
   var pts=document.getElementById('cfg-promoThresholdSecond');if(pts)CFG.promoThresholdSecondSeason=parseInt(pts.value)||50;
+  var nsb=document.getElementById('cfg-noSaleBreaks');if(nsb)CFG.noSaleAgeBreaks=nsb.value.split(',').map(function(x){return parseInt(x.trim())||0;}).filter(function(x){return x>0;});
+  var nsr=document.getElementById('cfg-noSaleRates');if(nsr)CFG.noSaleDiscRates=nsr.value.split(',').map(function(x){return parseInt(x.trim())||0;});
+  var pft=document.getElementById('cfg-promoFail');if(pft)CFG.promoFailThreshold=parseInt(pft.value)||5;
   localStorage.setItem(SETTINGS_KEY,JSON.stringify(CFG));
   closeModal('modal-settings');
   if(activeLotId) renderDetail();
@@ -540,6 +548,9 @@ function fillSettingsForm(){
   var rw=document.getElementById('cfg-recentWeeks');if(rw)rw.value=CFG.recentWeeks||8;
   var ptn=document.getElementById('cfg-promoThreshold');if(ptn)ptn.value=CFG.promoThreshold||30;
   var pts=document.getElementById('cfg-promoThresholdSecond');if(pts)pts.value=CFG.promoThresholdSecondSeason||50;
+  var nsb=document.getElementById('cfg-noSaleBreaks');if(nsb)nsb.value=(CFG.noSaleAgeBreaks||[4,7,10,12]).join(', ');
+  var nsr=document.getElementById('cfg-noSaleRates');if(nsr)nsr.value=(CFG.noSaleDiscRates||[0,15,30,50,70]).join(', ');
+  var pft=document.getElementById('cfg-promoFail');if(pft)pft.value=CFG.promoFailThreshold||5;
 }
 function openSettings(){fillSettingsForm();document.getElementById('modal-settings').style.display='flex';}
 
@@ -933,18 +944,51 @@ function calcRecommendedDiscount(item,lot,lotRecovered){
   var recDisc=0,reason='',escalate=false,isPromoCandidate=false;
   if((item.soldQty||0)===0){
     var weeks=item.weeksOnShelf||0;
-    var breaks=CFG.noSaleAgeBreaks||[4,8,12,16];
-    var rates=CFG.noSaleDiscRates||[0,15,25,35,50];
+    var breaks=CFG.noSaleAgeBreaks||[4,7,10,12];
+    var rates=CFG.noSaleDiscRates||[0,15,30,50,70];
     var idx=0;for(var i=0;i<breaks.length;i++){if(weeks>=breaks[i])idx=i+1;}
     recDisc=rates[Math.min(idx,rates.length-1)]||0;
-    reason=recDisc>0?('Нет продаж уже '+weeks+' нед.'):'Новинка — пока не трогаем';
-    if(recDisc>=promoThr)isPromoCandidate=true;
+    // Память об акциях: была ли акция и помогла ли
+    var hadPromo=(item.promoHistory||[]).length>0;
+    var promoFailed=false;
+    if(hadPromo){
+      // Акция была. Помогла ли? Смотрим продажи во время акций
+      var soldDuringPromos=(item.promoHistory||[]).reduce(function(s,ph){return s+(ph.soldDuring||0);},0);
+      var promoFailThr=CFG.promoFailThreshold||5; // % остатка
+      promoFailed=soldDuringPromos<=Math.max(1,remain*promoFailThr/100);
+    }
+    if(recDisc>0){
+      if(weeks<breaks[0]){
+        reason='Новинка ('+weeks+' нед) — пока не трогаем';
+      } else {
+        reason='Нет продаж уже '+weeks+' нед';
+        if(hadPromo&&promoFailed){
+          // Акция была и не помогла — углубляем постоянную скидку, акцию НЕ предлагаем
+          recDisc=Math.min(rates[Math.min(idx+1,rates.length-1)]||recDisc,90); // на ступень глубже
+          reason+=' · акция не помогла → постоянная скидка глубже';
+          isPromoCandidate=false;
+        } else if(hadPromo){
+          reason+=' · акция дала эффект, держим скидку';
+          isPromoCandidate=false;
+        } else {
+          // Акций не было — большую скидку можно через акцию (срочность)
+          if(recDisc>=promoThr)isPromoCandidate=true;
+        }
+      }
+    } else {
+      reason='Новинка — пока не трогаем';
+    }
     // Маленький остаток без продаж — слить, не делать акцию
     var liqAge=secondSeason?(CFG.age1||4):(CFG.age2||8);
     if(remain<=smallStock&&recDisc>0&&weeks>=liqAge){
       isLiquidate=true;isPromoCandidate=false;
       reason='Мало осталось ('+remain+' шт), не продаётся '+weeks+' нед — слить остаток';
       if(lotRecovered){recDisc=Math.max(recDisc,50);}
+    }
+    // Долго не продаётся + акция БЫЛА и НЕ помогла + большой остаток = слить агрессивно
+    if(weeks>=breaks[breaks.length-1]&&recDisc>=70&&!isPromoCandidate&&hadPromo&&promoFailed){
+      isLiquidate=true;
+      reason='Мёртвый сток: '+weeks+' нед без продаж, акции не помогли — сливать';
     }
   } else if(monthsLeft!==null&&(item.effAvgMonth||item.avgPerMonth)>0){
     // Темп по последним неделям (как продаётся сейчас), а не за всю историю
