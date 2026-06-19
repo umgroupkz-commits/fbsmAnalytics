@@ -1652,7 +1652,7 @@ function renderDetail(){
     '</div>';
 
   // === Build discount tab ===
-  var discTabHTML=buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,discRecs,liquidateItems,deepenItems);
+  var discTabHTML=buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,discRecs,liquidateItems,deepenItems,liquidatedItems);
 
   var netColor=m.netProfit>=0?'var(--green)':'var(--red)';
 
@@ -1733,7 +1733,7 @@ function buildTopTab(l,totalRev,totalGP){
 
 
 // ===== DISC TAB =====
-function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,discRecs,liquidateItems,deepenItems){
+function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,discRecs,liquidateItems,deepenItems,liquidatedItems){
   var html='';
   if(!l.sellBy&&!CFG.seasonEnd) html+='<div class="rec-box" style="background:#3d2810;border:1px solid var(--orange);color:var(--orange)"><b>⚠ Укажите «Продать до» у лота или конец сезона в настройках ⚙</b></div>';
   html+='<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
