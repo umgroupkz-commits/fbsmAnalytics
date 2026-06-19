@@ -1195,7 +1195,9 @@ function cwNext1(){
   var items=buildItems(draft.stock,draft.price,draft.sales,null);
   var noPrice=items.filter(function(i){return i.noPrice;}).length;
   var totalQty=items.reduce(function(s,i){return s+i.qty;},0);
-  document.getElementById('p-info').innerHTML='Позиций: <b style="color:var(--text)">'+items.length+'</b> · Штук: <b style="color:var(--text)">'+totalQty+'</b>'+(noPrice>0?' · <span style="color:var(--orange)">⚠ '+noPrice+' без цены</span>':'');
+  var soldTotal=items.reduce(function(s,i){return s+(i.soldQty||0);},0);
+  var oprihod=totalQty+soldTotal;
+  document.getElementById('p-info').innerHTML='Позиций: <b style="color:var(--text)">'+items.length+'</b> · На складе: <b style="color:var(--text)">'+totalQty+'</b>'+(soldTotal>0?' · Продано: <b style="color:var(--text)">'+soldTotal+'</b> · Оприходовано: <b style="color:var(--accent)">'+oprihod+'</b>':'')+(noPrice>0?' · <span style="color:var(--orange)">⚠ '+noPrice+' без цены</span>':'');
   cwGoTo(2);
 }
 function cwNext2(){
@@ -1215,14 +1217,18 @@ function cwNext2(){
   cwGoTo(3);
 }
 function buildPreview(items,cost,weeks,totalUnits){
-  var loadedQty=items.reduce(function(s,i){return s+i.qty;},0);
+  // Оприходовано = текущий остаток + проданное (начальный объём)
+  var stockQty=items.reduce(function(s,i){return s+(i.qty||0);},0);
+  var soldQty=items.reduce(function(s,i){return s+(i.soldQty||0);},0);
+  var loadedQty=stockQty+soldQty;
   var effectiveCost=totalUnits&&totalUnits>loadedQty?cost*(loadedQty/totalUnits):cost;
-  var planRev=items.reduce(function(s,i){return s+i.qty*(i.price||0);},0);
+  // Выручка по ценам всего оприходованного объёма
+  var planRev=items.reduce(function(s,i){return s+((i.qty||0)+(i.soldQty||0))*(i.price||0);},0);
   var planMargin=planRev>0?((planRev-effectiveCost)/planRev*100):0;
   var noPrice=items.filter(function(i){return i.noPrice;}).length;
   document.getElementById('cw3-stats').innerHTML=
     '<div class="stat-card"><div class="stat-lbl">Стоимость лота</div><div class="stat-val">'+fmt(cost)+' ₸</div>'+(totalUnits?'<div class="stat-sub">всего '+fmt(totalUnits)+' шт</div>':'')+'</div>'+
-    '<div class="stat-card"><div class="stat-lbl">Оприход. / штук</div><div class="stat-val">'+items.length+' / '+loadedQty+'</div>'+(totalUnits&&totalUnits>loadedQty?'<div class="stat-sub" style="color:var(--yellow)">'+Math.round(loadedQty/totalUnits*100)+'% лота</div>':'')+'</div>'+
+    '<div class="stat-card"><div class="stat-lbl">Позиций / оприходовано</div><div class="stat-val">'+items.length+' / '+loadedQty+'</div><div class="stat-sub">на складе '+stockQty+(soldQty>0?' · продано '+soldQty:'')+(totalUnits&&totalUnits>loadedQty?' · '+Math.round(loadedQty/totalUnits*100)+'% лота':'')+'</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Себест. партии</div><div class="stat-val">'+fmt(effectiveCost)+' ₸</div>'+(totalUnits?'<div class="stat-sub">'+Math.round(cost/Math.max(totalUnits,1))+' ₸/шт</div>':'')+'</div>'+
     '<div class="stat-card"><div class="stat-lbl">Выручка план</div><div class="stat-val" style="color:var(--accent)">'+fmt(planRev)+' ₸</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Маржа план</div><div class="stat-val" style="color:'+(planMargin>=40?'var(--green)':planMargin>20?'var(--yellow)':'var(--red)')+'">'+pct(planMargin)+'</div></div>'+
