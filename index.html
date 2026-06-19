@@ -683,20 +683,25 @@ function parseSales(wb){
   var dateCols=[];
   for(var c=0;c<dr.length;c++){var v=dr[c];if(v&&typeof v==='string'&&/^\d{2}\.\d{2}\.\d{4}/.test(String(v).trim()))dateCols.push(c);}
   if(!dateCols.length)return null;
-  var step=dateCols.length>1?(dateCols[1]-dateCols[0]):3;
-  // qty в колонке даты, rev — смещение внутри блока. Определим по подзаголовку (строка ниже даты)
   var subRow=raw[dateRow+1]||[];
   var weeks=[];
   for(var k=0;k<dateCols.length;k++){
     var qc=dateCols[k];
-    // найти rev-колонку внутри блока [qc, qc+step)
-    var rc=qc+1;
-    for(var cc=qc;cc<qc+step&&cc<subRow.length;cc++){
-      var sv=cleanCell(subRow[cc]).toLowerCase();
-      if(sv.includes('сумм')||sv.includes('выруч'))rc=cc;
-      if(sv.includes('количеств'))qc=cc;
+    // граница блока — следующая дата (или конец строки)
+    var blockEnd=(k+1<dateCols.length)?dateCols[k+1]:dr.length;
+    // qty: колонка с подзаголовком "Количеств" в блоке (по умолчанию сама дата-колонка)
+    var qcol=qc;
+    for(var cc=qc;cc<blockEnd&&cc<subRow.length;cc++){
+      if(cleanCell(subRow[cc]).toLowerCase().includes('количеств')){qcol=cc;break;}
     }
-    weeks.push({label:cleanCell(dr[dateCols[k]]).slice(0,10),qtyCol:qc,revCol:rc});
+    // rev: колонка с подзаголовком "Сумм"/"Выруч" в блоке
+    var rcol=-1;
+    for(var cc=qc;cc<blockEnd&&cc<subRow.length;cc++){
+      var sv=cleanCell(subRow[cc]).toLowerCase();
+      if(sv.includes('сумм')||sv.includes('выруч')){rcol=cc;break;}
+    }
+    if(rcol<0)rcol=qcol+1;
+    weeks.push({label:cleanCell(dr[dateCols[k]]).slice(0,10),qtyCol:qcol,revCol:rcol});
   }
   // данные после строки "Характеристика" или после подзаголовков
   var dataStart=dateRow+1;
@@ -773,15 +778,18 @@ function buildItems(stockMap,priceMap,salesData,existingItems){
 
 // ===== COST: доля стоимости на оприходованное, пропорц. ценам =====
 function calcCosts(items,lotCost,totalUnits){
-  var loadedQty=items.reduce(function(s,i){return s+(i.qty||0);},0);
+  // Оприходовано = текущий остаток + проданное (начальный объём по каждой позиции)
+  var loadedQty=items.reduce(function(s,i){return s+(i.qty||0)+(i.soldQty||0);},0);
   var effectiveCost=lotCost;
   if(totalUnits&&totalUnits>loadedQty){
     effectiveCost=lotCost*(loadedQty/totalUnits);
   }
-  var planRev=items.reduce(function(s,i){return s+i.qty*(i.price||0);},0);
+  // Распределение себестоимости пропорц. цене по всему оприходованному объёму
+  var planRev=items.reduce(function(s,i){return s+((i.qty||0)+(i.soldQty||0))*(i.price||0);},0);
   items.forEach(function(i){
-    var share=planRev>0?(i.qty*(i.price||0)/planRev):(1/Math.max(items.length,1));
-    i.costPer=i.qty>0?(effectiveCost*share/i.qty):0;
+    var initialQty=(i.qty||0)+(i.soldQty||0); // оприходовано этой позиции
+    var share=planRev>0?(initialQty*(i.price||0)/planRev):(1/Math.max(items.length,1));
+    i.costPer=initialQty>0?(effectiveCost*share/initialQty):0;
     i.mkCalc=i.costPer>0?((i.price-i.costPer)/i.costPer*100):0;
     i.mgUnit=(i.price||0)>0?((i.price-i.costPer)/i.price*100):0;
     i.grossProfitPer=i.price-(i.costPer||0);
@@ -835,7 +843,7 @@ function enrichItems(items,lotDate,secondSeason){
     var start=new Date(i.firstSeenDate||lotDate||now);
     i.daysOnShelf=Math.max(0,Math.floor((now-start)/86400000));
     i.weeksOnShelf=Math.round(i.daysOnShelf/7);
-    var remain=Math.max(i.qty-(i.soldQty||0),0);
+    var remain=Math.max(i.qty||0,0);
     // Запас считаем по рабочему темпу
     i.coverMonths=i.effAvgMonth>0?(remain/i.effAvgMonth):null;
     i.hadPromo=(i.promoHistory||[]).length>0;
@@ -879,7 +887,7 @@ function getLearnedBoost(discPct){
 
 // Оценка срока акции и сколько продастся за период
 function estimatePromoPeriod(item,discPct){
-  var remain=Math.max((item.qty||0)-(item.soldQty||0),0);
+  var remain=Math.max(item.qty||0,0);
   var avgWeek=(item.avgPerMonth||0)/4;
   // Скидка ускоряет продажи. Если есть история акций — берём фактический коэффициент
   var learned=getLearnedBoost(discPct);
@@ -910,7 +918,7 @@ function calcRecommendedDiscount(item,lot,lotRecovered){
   var secondSeason=lotObj?!!lotObj.secondSeason:false;
   // Дедлайн распродажи: индивидуальный sellBy лота, иначе глобальный seasonEnd
   var sellBy=(lotObj&&lotObj.sellBy)?lotObj.sellBy:(CFG.seasonEnd||'');
-  var remain=Math.max((item.qty||0)-(item.soldQty||0),0);
+  var remain=Math.max(item.qty||0,0);
   if(remain<=0)return{disc:0,reason:'Продано',escalate:false,discPrice:0,monthsLeft:null,forecast:null,isPromoCandidate:false,isLiquidate:false};
   // Маленький остаток + нет продаж = слить, а не акция
   var smallStock=CFG.smallStockQty||5;
@@ -1227,7 +1235,7 @@ function buildPreview(items,cost,weeks,totalUnits){
   document.getElementById('cw3-tbody').innerHTML=items.map(function(item){
     var abc=abcdRev[item.id]||'D';
     var mgColor=item.mgUnit>=30?'var(--green)':item.mgUnit>15?'var(--yellow)':'var(--red)';
-    var remain=Math.max(item.qty-(item.soldQty||0),0);
+    var remain=Math.max(item.qty||0,0);
     return '<tr><td style="font-weight:500">'+item.name+'</td><td class="mono">'+remain+'</td><td style="text-align:right" class="mono">'+(item.price>0?fmt(item.price):'—')+'</td><td style="text-align:right;color:var(--text2)" class="mono">'+fmt(item.costPer)+'</td><td style="text-align:right" class="mono">×'+(1+item.mkCalc/100).toFixed(2)+'</td><td style="text-align:right;color:'+mgColor+'" class="mono">'+pct(item.mgUnit)+'</td><td><span class="badge badge-'+abc+'">'+abc+'</span></td></tr>';
   }).join('');
 }
@@ -1273,13 +1281,16 @@ function applyUpdate(){
 
 // ===== METRICS (от полной стоимости лота) =====
 function metrics(l){
-  var totalQty=l.items.reduce(function(s,i){return s+(i.qty||0);},0);
-  var soldQty=l.items.reduce(function(s,i){return s+(i.soldQty||0);},0);
+  // qty в файле = ТЕКУЩИЙ остаток на складе (факт из 1С).
+  // Начальный объём (оприходовано) = текущий остаток + проданное.
+  var remainQty=l.items.reduce(function(s,i){return s+(i.qty||0);},0);      // на складе сейчас
+  var soldQty=l.items.reduce(function(s,i){return s+(i.soldQty||0);},0);    // продано за период
+  var totalQty=remainQty+soldQty;                                           // оприходовано (начальный объём)
   var factRev=l.items.reduce(function(s,i){return s+(i.soldRev||0);},0);
-  var planRev=l.items.reduce(function(s,i){return s+i.qty*(i.price||0);},0);
+  // Выручка по ценам всего оприходованного объёма (остаток+продажи) по полным ценам
+  var planRev=l.items.reduce(function(s,i){return s+((i.qty||0)+(i.soldQty||0))*(i.price||0);},0);
   var grossProfit=l.items.reduce(function(s,i){return s+(i.grossProfit||0);},0);
   var costSoldTotal=l.items.reduce(function(s,i){return s+(i.costPer||0)*(i.soldQty||0);},0);
-  var remainQty=Math.max(totalQty-soldQty,0);
   var soldPct=totalQty>0?(soldQty/totalQty*100):0;
   var fullCost=l.cost||0;
   var loadedQty=totalQty;
@@ -1299,7 +1310,7 @@ function metrics(l){
   // ПРОГНОЗ ИТОГОВОЙ НАЦЕНКИ: проданное по факту из 1С + остаток по текущей цене с постоянной скидкой,
   // тоже от доли стоимости на оприходованное
   var remainRevAtCurrentPrice=l.items.reduce(function(s,i){
-    var rem=Math.max((i.qty||0)-(i.soldQty||0),0);
+    var rem=Math.max(i.qty||0,0);
     var curPrice=(i.hasDiscount&&i.discountPct>0)?(i.discountPrice||i.price):i.price;
     return s+rem*curPrice;
   },0);
@@ -1351,7 +1362,7 @@ function buildAdvisor(l,m){
     adv='Укажите дату конца сезона в настройках ⚙ — тогда я смогу прогнозировать акции и сроки.';
   } else if(m.recovery>=100){
     // Lot recovered - push to profit target
-    var potentialRev=m.factRev+l.items.reduce(function(s,i){var rem=Math.max(i.qty-(i.soldQty||0),0);return s+rem*(i.price||0);},0);
+    var potentialRev=m.factRev+l.items.reduce(function(s,i){var rem=Math.max(i.qty||0,0);return s+rem*(i.price||0);},0);
     var potentialProfit=potentialRev-m.fullCost;
     var potentialProfitPct=m.fullCost>0?(potentialProfit/m.fullCost*100):0;
     adv='<b>✅ Лот окупился ('+pct(m.recovery)+').</b> Остаток '+m.remainQty+' шт. До конца сезона '+weeksLeft+' нед.<br>';
@@ -1487,7 +1498,7 @@ function renderDetail(){
   filtered.forEach(function(item,idx){
     var abc=abcdMap[item.id]||'D';
     var mgColor=item.mgUnit>=30?'var(--green)':item.mgUnit>15?'var(--yellow)':'var(--red)';
-    var remain=Math.max(item.qty-(item.soldQty||0),0);
+    var remain=Math.max(item.qty||0,0);
     var spark=getSparkline(item.weeks);
     var ageCls=getAgeClass(item.weeksOnShelf||0);var covCls=getCoverClass(item.coverMonths);
     var drec=discRecs[item.id];var labels=getItemLabels(item);
@@ -1609,7 +1620,7 @@ function buildTopTab(l,totalRev,totalGP){
     topRev+='<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><div style="font-size:10px;color:var(--text3);font-family:var(--mono);width:16px">'+(idx+1)+'</div><div style="flex:1;font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+item.name+'</div><div style="text-align:right;flex-shrink:0"><div style="font-size:11px;font-family:var(--mono);color:var(--accent)">'+fmt(item.soldRev)+' ₸</div><div style="font-size:9px;color:var(--text3)">'+pct(share)+'</div></div></div>';
   });
   var topGP='';l.items.filter(function(i){return(i.soldQty||0)>0;}).sort(function(a,b){return(b.soldQty||0)-(a.soldQty||0);}).slice(0,10).forEach(function(item,idx){
-    var sp=item.qty>0?(item.soldQty/item.qty*100):0;
+    var sp=(item.qty+item.soldQty)>0?(item.soldQty/(item.qty+item.soldQty)*100):0;
     topGP+='<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><div style="font-size:10px;color:var(--text3);font-family:var(--mono);width:16px">'+(idx+1)+'</div><div style="flex:1;font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+item.name+'</div><div style="text-align:right;flex-shrink:0"><div style="font-size:11px;font-family:var(--mono);color:var(--green)">'+item.soldQty+' шт</div><div style="font-size:9px;color:var(--text3)">'+pct(sp)+' продано</div></div></div>';
   });
   return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+
@@ -1637,7 +1648,7 @@ function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,disc
       '<div style="overflow-x:auto"><table><thead><tr><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Себест.</th><th>Возр.</th><th>Скидка</th><th>Цена со скидкой</th><th>Статус</th></tr></thead><tbody>';
     liquidateItems.forEach(function(item){
       var drec=discRecs[item.id];
-      var remain=Math.max(item.qty-(item.soldQty||0),0);
+      var remain=Math.max(item.qty||0,0);
       var below=drec.discPrice<(item.costPer||0);
       html+='<tr><td style="font-weight:500">'+item.name+'</td><td class="mono">'+remain+'</td><td class="mono">'+fmt(item.price)+'</td>'+
         '<td class="mono" style="color:var(--text2)">'+fmt(item.costPer)+'</td>'+
@@ -1657,7 +1668,7 @@ function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,disc
       '<div style="overflow-x:auto"><table><thead><tr><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Прод.шт</th><th>Ср/мес</th><th>Запас</th><th>Возр.</th><th>Рек.скидка</th><th>Срок акции</th><th>Продастся</th><th>Причина</th><th></th></tr></thead><tbody>';
     promoItems.forEach(function(item){
       var drec=discRecs[item.id];
-      var remain=Math.max(item.qty-(item.soldQty||0),0);
+      var remain=Math.max(item.qty||0,0);
       var promoPeriod=estimatePromoPeriod(item,drec.disc);
       html+='<tr><td style="font-weight:500">'+item.name+'</td><td class="mono">'+remain+'</td><td class="mono">'+fmt(item.price)+'</td>'+
         '<td class="mono'+(item.soldQty===0?' num-zero':'')+'">'+(item.soldQty||0)+'</td>'+
@@ -1679,7 +1690,7 @@ function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,disc
       '<div style="overflow-x:auto"><table><thead><tr><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Прод.шт</th><th>Ср/мес</th><th>Запас</th><th>Возр.</th><th>Рек.скидка</th><th>Цена со скидкой</th><th>Маржа после</th><th>Причина</th><th>Статус</th></tr></thead><tbody>';
     discItems.forEach(function(item){
       var drec=discRecs[item.id];
-      var remain=Math.max(item.qty-(item.soldQty||0),0);
+      var remain=Math.max(item.qty||0,0);
       var c=drec.disc>=50?'var(--red)':drec.disc>=30?'var(--orange)':'var(--yellow)';
       var bg=drec.disc>=50?'#3d1a1a':drec.disc>=30?'#3d2810':'#2d2510';
       var ma=item.price>0?((drec.discPrice-(item.costPer||0))/drec.discPrice*100):0;
@@ -1954,7 +1965,7 @@ function renderPromoDetail(){
   var totalRemain=0,forecastSold=0,forecastRev=0;
   p.items.forEach(function(pi){
     var item=l.items.find(function(i){return i.id===pi.itemId;});if(!item)return;
-    var remain=Math.max(item.qty-(item.soldQty||0),0);
+    var remain=Math.max(item.qty||0,0);
     totalRemain+=remain;
     var days=p.unlimited?30:(end&&p.startDate?Math.max(1,(end-new Date(p.startDate))/86400000):14);
     var weeks=days/7;
@@ -1968,7 +1979,7 @@ function renderPromoDetail(){
   var rows='';
   p.items.forEach(function(pi){
     var item=l.items.find(function(i){return i.id===pi.itemId;});if(!item)return;
-    var remain=Math.max(item.qty-(item.soldQty||0),0);
+    var remain=Math.max(item.qty||0,0);
     var dp=item.price*(1-(pi.discPct||0)/100);
     rows+='<tr>'+
       '<td style="font-weight:500">'+item.name+'</td>'+
@@ -2171,7 +2182,7 @@ function openItemStats(itemId){
   var tableRows='';weeks.forEach(function(w){tableRows+='<tr><td class="mono">'+w.label+'</td><td class="mono" style="text-align:right">'+(w.qty||0)+'</td><td class="mono" style="text-align:right">'+fmt(w.rev||0)+'</td></tr>';});
   var totalQty=weeks.reduce(function(s,w){return s+(w.qty||0);},0);
   var totalRev=weeks.reduce(function(s,w){return s+(w.rev||0);},0);
-  var remain=Math.max(item.qty-(item.soldQty||0),0);
+  var remain=Math.max(item.qty||0,0);
 
   var html='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px">'+
     '<div style="flex:1"><div class="modal-title">'+item.name+'</div>'+
