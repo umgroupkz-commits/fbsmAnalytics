@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v26</title>
+<title>FBSM — Управление лотами v28</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -168,7 +168,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v26</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v28</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -851,7 +851,8 @@ function enrichItems(items,lotDate,secondSeason){
       i.effAvgWeek=i.avgPerWeek;
       i.effAvgMonth=i.avgPerMonth;
     }
-    var start=new Date(i.firstSeenDate||lotDate||now);
+    // Возраст от даты лота (когда товар реально поступил), а не от даты загрузки в программу
+    var start=new Date(lotDate||i.firstSeenDate||now);
     i.daysOnShelf=Math.max(0,Math.floor((now-start)/86400000));
     i.weeksOnShelf=Math.round(i.daysOnShelf/7);
     var remain=Math.max(i.qty||0,0);
@@ -1251,6 +1252,7 @@ function cwNext2(){
   if(!cost){alert('Введите стоимость лота');return;}
   var totalUnits=parseInt(document.getElementById('p-total-units').value)||0;
   draft._profitTarget=parseFloat(document.getElementById('p-profit-target').value)||(CFG.profitTargetPct||60);
+  window._draftProfitTarget=draft._profitTarget;
   draft._sellBy=document.getElementById('p-sell-by').value||'';
   draft._secondSeason=document.getElementById('p-second-season').checked;
   var items=buildItems(draft.stock,draft.price,draft.sales,null);
@@ -1275,11 +1277,11 @@ function buildPreview(items,cost,weeks,totalUnits){
     '<div class="stat-card"><div class="stat-lbl">Позиций / оприходовано</div><div class="stat-val">'+items.length+' / '+loadedQty+'</div><div class="stat-sub">на складе '+stockQty+(soldQty>0?' · продано '+soldQty:'')+(totalUnits&&totalUnits>loadedQty?' · '+Math.round(loadedQty/totalUnits*100)+'% лота':'')+'</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Себест. партии</div><div class="stat-val">'+fmt(effectiveCost)+' ₸</div>'+(totalUnits?'<div class="stat-sub">'+Math.round(cost/Math.max(totalUnits,1))+' ₸/шт</div>':'')+'</div>'+
     '<div class="stat-card"><div class="stat-lbl">Выручка план</div><div class="stat-val" style="color:var(--accent)">'+fmt(planRev)+' ₸</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Маржа план</div><div class="stat-val" style="color:'+(planMargin>=40?'var(--green)':planMargin>20?'var(--yellow)':'var(--red)')+'">'+pct(planMargin)+'</div></div>'+
+    (function(){var tgt=(window._draftProfitTarget!==undefined?window._draftProfitTarget:(CFG.profitTargetPct||60));var buf=CFG.markupBuffer||15;var col=planMarkup>=tgt+buf?'var(--green)':planMarkup>=tgt?'var(--yellow)':'var(--red)';return '<div class="stat-card" style="border-color:'+col+'"><div class="stat-lbl">Наценка по ценам</div><div class="stat-val" style="color:'+col+'">'+pct(planMarkup)+'</div><div class="stat-sub">маржа '+pct(planMargin)+' · цель +'+tgt+'%</div></div>';})()+
     (noPrice>0?'<div class="stat-card" style="border-color:var(--orange)"><div class="stat-lbl">Без цены</div><div class="stat-val" style="color:var(--orange)">'+noPrice+'</div></div>':'');
   document.getElementById('cw3-margin').innerHTML=
-    '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:4px"><span>Плановая маржа</span><span style="color:'+(planMargin>=CFG.targetMargin?'var(--green)':planMargin>30?'var(--yellow)':'var(--red)')+'"><b>'+pct(planMargin)+'</b> · цель '+CFG.targetMargin+'%</span></div>'+
-    '<div class="progress-bar-wrap"><div class="progress-bar" style="width:'+Math.min(planMargin,100)+'%;background:'+(planMargin>=CFG.targetMargin?'var(--green)':planMargin>30?'var(--yellow)':'var(--red)')+'"></div></div>';
+    (function(){var tgt=(window._draftProfitTarget!==undefined?window._draftProfitTarget:(CFG.profitTargetPct||60));var buf=CFG.markupBuffer||15;var col=planMarkup>=tgt+buf?'var(--green)':planMarkup>=tgt?'var(--yellow)':'var(--red)';var barW=Math.min(planMarkup/Math.max(tgt+buf,1)*100,100);return '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:4px"><span>Плановая наценка</span><span style="color:'+col+'"><b>'+pct(planMarkup)+'</b> · цель +'+tgt+'%</span></div>'+
+    '<div class="progress-bar-wrap"><div class="progress-bar" style="width:'+barW+'%;background:'+col+'"></div></div>';})();
   var abcdRev=calcABCD(items,'soldRev');
   document.getElementById('cw3-thead').innerHTML='<tr><th>Наименование</th><th>Ост.</th><th style="text-align:right">Цена</th><th style="text-align:right">Себест.</th><th style="text-align:right">Наценка</th><th style="text-align:right">Маржа</th><th>ABCD</th></tr>';
   document.getElementById('cw3-tbody').innerHTML=items.map(function(item){
@@ -1464,11 +1466,11 @@ function renderLots(){
       '<div class="lot-metric"><div class="lot-metric-lbl">Выручка</div><div class="lot-metric-val" style="color:var(--accent)">'+fmt(m.factRev)+' ₸</div></div>'+
       '<div class="lot-metric"><div class="lot-metric-lbl">Окупаемость</div><div class="lot-metric-val" style="color:'+(m.recovery>=100?'var(--green)':m.recovery>50?'var(--yellow)':'var(--text)')+'">'+(l.cost>0?pct(m.recovery):'—')+'</div></div>'+
       '<div class="lot-metric"><div class="lot-metric-lbl">Чистая прибыль</div><div class="lot-metric-val" style="color:'+netColor+'">'+(m.netProfit>=0?'+':'')+fmt(m.netProfit)+' ₸</div></div>'+
-      '<div class="lot-metric"><div class="lot-metric-lbl">Наценка</div><div class="lot-metric-val">'+(l.cost>0?pct(m.markup):'—')+'</div></div>'+
+      '<div class="lot-metric"><div class="lot-metric-lbl">Наценка по ценам</div><div class="lot-metric-val">'+(l.cost>0?pct(m.markup):'—')+'</div><div style="font-size:8px;color:var(--text3)">без скидок</div></div>'+
       (function(){
         var buf=CFG.markupBuffer||15;var pm=m.projectedMarkup;var tgt=m.profitTarget;
         var col=pm>=tgt+buf?'var(--green)':pm>=tgt?'var(--yellow)':'var(--red)';
-        return '<div class="lot-metric" style="border-color:'+col+'"><div class="lot-metric-lbl">Прогноз наценки</div><div class="lot-metric-val" style="color:'+col+'">'+(l.cost>0?pct(pm):'—')+'</div><div style="font-size:8px;color:var(--text3)">цель +'+tgt+'%</div></div>';
+        return '<div class="lot-metric" style="border-color:'+col+'"><div class="lot-metric-lbl">Наценка со скидками</div><div class="lot-metric-val" style="color:'+col+'">'+(l.cost>0?pct(pm):'—')+'</div><div style="font-size:8px;color:var(--text3)">цель +'+tgt+'%</div></div>';
       })()+
       (m.staleItems>0?'<div class="lot-metric" style="border-color:var(--red)"><div class="lot-metric-lbl" style="color:var(--red)">Залежалых</div><div class="lot-metric-val" style="color:var(--red)">'+m.staleItems+'</div></div>':'')+
       (activePromoCount>0?'<div class="lot-metric" style="border-color:var(--teal)"><div class="lot-metric-lbl" style="color:var(--teal)">Акций</div><div class="lot-metric-val" style="color:var(--teal)">'+activePromoCount+'</div></div>':'')+
@@ -1615,13 +1617,13 @@ function renderDetail(){
     '<div class="stat-card"><div class="stat-lbl">Выручка факт</div><div class="stat-val" style="color:var(--accent)">'+fmt(m.factRev)+' ₸</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Окупаемость</div><div class="stat-val" style="color:'+(m.recovery>=100?'var(--green)':m.recovery>50?'var(--yellow)':'var(--text)')+'">'+(m.fullCost>0?pct(m.recovery):'—')+'</div><div class="stat-sub">'+fmt(m.factRev)+' / '+fmt(m.fullCost)+'</div></div>'+
     '<div class="stat-card" style="border-color:'+netColor+'"><div class="stat-lbl">Чистая прибыль</div><div class="stat-val" style="color:'+netColor+'">'+(m.netProfit>=0?'+':'')+fmt(m.netProfit)+' ₸</div><div class="stat-sub">выручка − стоимость лота</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Наценка</div><div class="stat-val">'+pct(m.markup)+'</div><div class="stat-sub">от цен к стоимости лота</div></div>'+
+    '<div class="stat-card"><div class="stat-lbl">Наценка по ценам</div><div class="stat-val">'+pct(m.markup)+'</div><div class="stat-sub">маржа '+pct(m.markup>0?(m.markup/(100+m.markup)*100):0)+' · без учёта скидок</div></div>'+
     (function(){
       var buf=CFG.markupBuffer||15;
       var pm=m.projectedMarkup;var tgt=m.profitTarget;
       var col=pm>=tgt+buf?'var(--green)':pm>=tgt?'var(--yellow)':'var(--red)';
       var note=pm>=tgt+buf?'есть запас на скидки':pm>=tgt?'запас тает':'ниже цели — скидки съели прибыль';
-      return '<div class="stat-card" style="border-color:'+col+'"><div class="stat-lbl">Прогноз наценки</div><div class="stat-val" style="color:'+col+'">'+pct(pm)+'</div><div class="stat-sub">цель +'+tgt+'% · '+note+'</div></div>';
+      return '<div class="stat-card" style="border-color:'+col+'"><div class="stat-lbl">Наценка с учётом скидок</div><div class="stat-val" style="color:'+col+'">'+pct(pm)+'</div><div class="stat-sub">цель +'+tgt+'% · '+note+'</div></div>';
     })()+
     '<div class="stat-card"><div class="stat-lbl">Продано</div><div class="stat-val">'+pct(m.soldPct)+'</div><div class="progress-bar-wrap" style="margin-top:5px"><div class="progress-bar" style="width:'+Math.min(m.soldPct,100)+'%;background:'+(m.soldPct>=80?'var(--green)':m.soldPct>40?'var(--yellow)':'var(--accent)')+'"></div></div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Остаток</div><div class="stat-val">'+m.remainQty+' шт</div></div>'+
@@ -2341,11 +2343,11 @@ function renderAnalytics(){
       '<div class="lot-metric"><div class="lot-metric-lbl">Выручка</div><div class="lot-metric-val" style="color:var(--accent)">'+fmt(m.factRev)+' ₸</div></div>'+
       '<div class="lot-metric"><div class="lot-metric-lbl">Окупаемость</div><div class="lot-metric-val" style="color:'+(m.recovery>=100?'var(--green)':m.recovery>50?'var(--yellow)':'var(--text)')+'">'+(l.cost>0?pct(m.recovery):'—')+'</div></div>'+
       '<div class="lot-metric"><div class="lot-metric-lbl">Чистая прибыль</div><div class="lot-metric-val" style="color:'+nc+'">'+(m.netProfit>=0?'+':'')+fmt(m.netProfit)+' ₸</div></div>'+
-      '<div class="lot-metric"><div class="lot-metric-lbl">Наценка</div><div class="lot-metric-val">'+(l.cost>0?pct(m.markup):'—')+'</div></div>'+
+      '<div class="lot-metric"><div class="lot-metric-lbl">Наценка по ценам</div><div class="lot-metric-val">'+(l.cost>0?pct(m.markup):'—')+'</div><div style="font-size:8px;color:var(--text3)">без скидок</div></div>'+
       (function(){
         var buf=CFG.markupBuffer||15;var pm=m.projectedMarkup;var tgt=m.profitTarget;
         var col=pm>=tgt+buf?'var(--green)':pm>=tgt?'var(--yellow)':'var(--red)';
-        return '<div class="lot-metric" style="border-color:'+col+'"><div class="lot-metric-lbl">Прогноз наценки</div><div class="lot-metric-val" style="color:'+col+'">'+(l.cost>0?pct(pm):'—')+'</div><div style="font-size:8px;color:var(--text3)">цель +'+tgt+'%</div></div>';
+        return '<div class="lot-metric" style="border-color:'+col+'"><div class="lot-metric-lbl">Наценка со скидками</div><div class="lot-metric-val" style="color:'+col+'">'+(l.cost>0?pct(pm):'—')+'</div><div style="font-size:8px;color:var(--text3)">цель +'+tgt+'%</div></div>';
       })()+
       (m.staleItems>0?'<div class="lot-metric" style="border-color:var(--red)"><div class="lot-metric-lbl" style="color:var(--red)">Залежалых</div><div class="lot-metric-val" style="color:var(--red)">'+m.staleItems+'</div></div>':'')+
       (activePromoCount>0?'<div class="lot-metric" style="border-color:var(--teal)"><div class="lot-metric-lbl" style="color:var(--teal)">Акций</div><div class="lot-metric-val" style="color:var(--teal)">'+activePromoCount+'</div></div>':'')+
