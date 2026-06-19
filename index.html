@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v39</title>
+<title>FBSM — Управление лотами v40</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -168,7 +168,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v39</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v40</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -1663,7 +1663,11 @@ function renderDetail(){
   var discItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].disc>0&&!discRecs[i.id].isPromoCandidate&&!discRecs[i.id].isLiquidate&&!i.isLiquidated&&(i.qty||0)>0&&!(i.activePromos||[]).length&&!(i.hasDiscount&&i.discountPct>0);});
   var promoItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].isPromoCandidate&&!discRecs[i.id].isLiquidate&&!(i.activePromos||[]).length;});
   var activeDiscItems=l.items.filter(function(i){return i.hasDiscount&&i.discountPct>0;});
-  var activePromos=promos.filter(function(p){return p.lotId===l.id&&p.status==='active';});
+  var activePromos=promos.filter(function(p){
+    if(p.status!=='active')return false;
+    if(p.lotId===l.id)return true;
+    return (p.items||[]).some(function(pi){return (pi.lotId||p.lotId)===l.id;});
+  });
 
   function thS(col,lbl){var a=detailSort.col===col;return'<th class="'+(a?'sorted':'')+'" onclick="sortDetail(\''+col+'\')">'+lbl+(a?(detailSort.dir>0?' ↑':' ↓'):'')+'</th>';}
 
@@ -2023,7 +2027,12 @@ function openPromoPickerFor(itemIds){
 function bulkMoveToPromo(forceShowPicker){
   var l=lots.find(function(x){return x.id===activeLotId;});if(!l)return;
   if(selectedItems.size===0){alert('Выберите позиции');return;}
-  var activePromos=promos.filter(function(p){return p.lotId===l.id&&p.status==='active';});
+  // Активные акции: где главный лот = этот ИЛИ есть позиция из этого лота (мульти-лот)
+  var activePromos=promos.filter(function(p){
+    if(p.status!=='active')return false;
+    if(p.lotId===l.id)return true;
+    return (p.items||[]).some(function(pi){return (pi.lotId||p.lotId)===l.id;});
+  });
   if(activePromos.length===0||forceShowPicker){
     // Show picker with option to create new
     var html='<div style="font-size:11px;color:var(--text2);margin-bottom:10px">Выбрано позиций: '+selectedItems.size+'</div>';
