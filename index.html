@@ -199,7 +199,6 @@ tr:hover td{background:#1a2030}
   </div>
   <div style="padding:16px 20px;flex:1" id="promos-list"></div>
 </div>
-</div>
 
 <div id="page-recos" class="page">
   <div class="action-bar" style="flex-wrap:wrap;gap:8px">
@@ -1111,11 +1110,13 @@ function calcRecommendedDiscount(item,lot,lotRecovered){
     // ОБЫЧНАЯ СКИДКА: упирается в себестоимость, НЕ ниже (защита прибыли)
     var rawDiscPrice=item.price*(1-recDisc/100);
     var minPrice=cost*(CFG.minPriceMult||1.0);
-    belowCost=rawDiscPrice<cost;
-    if(belowCost&&item.price>0&&minPrice>0){
+    if(rawDiscPrice<cost&&item.price>0&&minPrice>0){
       var maxDisc=Math.max(0,Math.floor((1-minPrice/item.price)*100));
       if(recDisc>maxDisc){finalDisc=maxDisc;priceWarning='Скидка ограничена себестоимостью ('+maxDisc+'%). Глубже — только через слив';}
     }
+    // Флаг belowCost — по ФИНАЛЬНОЙ цене (после ограничения), а не по сырой
+    var finalPrice=item.price*(1-finalDisc/100);
+    belowCost=finalPrice<cost-1; // -1 для погрешности округления
   }
   var forecastVal=((item.effAvgMonth||item.avgPerMonth)>0&&item.soldQty>0)?Math.max(remain/(item.effAvgMonth||item.avgPerMonth),0):null;
   // Не предлагать скидку на A-позиции по выручке (продаются сами) - если не слив
