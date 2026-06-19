@@ -576,49 +576,100 @@ function showPage(id,el){
 }
 
 // ===== PARSERS =====
+// Универсальные парсеры: поддерживают и старый формат (характеристика в колонке),
+// и новый сгруппированный (наименование-заголовок, характеристики строками ниже).
+// Ключ позиции = "наименование · характеристика" (если характеристика есть).
+var SIZE_TOKENS=['XS','S','M','L','XL','XXL','XXXL','2XL','3XL','4XL','5XL','6XL','ONE','FREE','ONESIZE'];
+function cleanCell(v){return v==null?'':String(v).replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();}
+function isCharRow(s){
+  if(!s||s.indexOf(',')<0)return false;
+  var sizePart=s.split(',')[0].trim().toUpperCase();
+  return SIZE_TOKENS.indexOf(sizePart)>=0;
+}
+function makeKey(name,char){return char?(name+' · '+char):name;}
+
 function parseStock(wb){
   var ws=wb.Sheets[wb.SheetNames[0]];
   var raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
-  var dataStart=-1;
+  var hdrRow=-1;
   for(var i=0;i<raw.length;i++){
-    if(raw[i].some(function(c){return c&&String(c).includes('Номенклатура');})&&raw[i].some(function(c){return c&&String(c).includes('Итого');})){dataStart=i+2;break;}
+    if(raw[i].some(function(c){return c&&String(c).includes('Номенклатура');})&&raw[i].some(function(c){return c&&String(c).includes('Итого');})){hdrRow=i;break;}
   }
-  if(dataStart<0)return null;
-  var hdr=raw[dataStart-2];
+  if(hdrRow<0)return null;
+  var hdr=raw[hdrRow];
   var totalCol=-1;for(var c=hdr.length-1;c>=0;c--){if(hdr[c]){totalCol=c;break;}}
-  var items={};
+  var charCol=-1;for(var c=0;c<hdr.length;c++){if(hdr[c]&&String(hdr[c]).includes('Характеристика'))charCol=c;}
+  var dataStart=hdrRow+1;
+  while(dataStart<raw.length){
+    var f=cleanCell(raw[dataStart]?raw[dataStart][0]:'');
+    if(f==='Характеристика'||f==='Количество'||f===''){dataStart++;}else break;
+  }
+  // Определить формат: есть ли строки-характеристики в колонке 0 (сгруппированный)
+  var grouped=false;
+  for(var i=dataStart;i<raw.length;i++){if(raw[i]&&isCharRow(cleanCell(raw[i][0]))){grouped=true;break;}}
+  var items={};var currentName=null;
   for(var i=dataStart;i<raw.length;i++){
     var r=raw[i];if(!r)continue;
-    var name=String(r[0]||'').trim();
-    if(!name||name==='Итого')continue;
+    var c1=cleanCell(r[0]);
+    if(!c1||c1==='Итого'||(/^\d+\s/.test(c1)&&c1.toLowerCase().includes('склад')))continue;
     var qty=parseFloat(r[totalCol])||0;
-    if(qty>0)items[name]={name:name,qty:qty};
+    if(charCol>=0&&cleanCell(r[charCol])){
+      // Плоский формат: наименование + характеристика в одной строке (характеристика в своей колонке)
+      var key=makeKey(c1,cleanCell(r[charCol]));
+      if(qty>0)items[key]={name:c1,char:cleanCell(r[charCol]),key:key,qty:qty};
+    } else if(grouped&&isCharRow(c1)){
+      // Сгруппированный: c1 = характеристика, наименование = последний заголовок
+      if(currentName&&qty>0){var key2=makeKey(currentName,c1);items[key2]={name:currentName,char:c1,key:key2,qty:qty};}
+    } else if(grouped){
+      // Сгруппированный: c1 = наименование-заголовок (НЕ добавляем как позицию — это группа)
+      currentName=c1;
+    } else {
+      // Плоский без характеристики: позиция = наименование
+      currentName=c1;
+      if(qty>0)items[c1]={name:c1,char:'',key:c1,qty:qty};
+    }
   }
   return items;
 }
+
 function parsePrice(wb){
   var ws=wb.Sheets[wb.SheetNames[0]];
   var raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
-  var dataStart=-1,priceCol=-1;
+  var hdrRow=-1,priceCol=-1,charCol=-1;
   for(var i=0;i<raw.length;i++){
-    var r=raw[i];
+    var r=raw[i];if(!r)continue;
     if(r.some(function(c){return c&&String(c).includes('Номенклатура');})){
-      for(var c=0;c<r.length;c++){if(r[c]&&String(r[c]).toLowerCase().includes('цен'))priceCol=c;}
-      dataStart=i+1;break;
+      for(var c=0;c<r.length;c++){
+        if(r[c]&&String(r[c]).toLowerCase().includes('цен'))priceCol=c;
+        if(r[c]&&String(r[c]).includes('Характеристика'))charCol=c;
+      }
+      hdrRow=i;break;
     }
   }
-  if(dataStart<0)return null;
-  var prices={};
-  for(var i=dataStart;i<raw.length;i++){
+  if(hdrRow<0)return null;
+  var grouped=false;
+  for(var i=hdrRow+1;i<raw.length;i++){if(raw[i]&&isCharRow(cleanCell(raw[i][0]))){grouped=true;break;}}
+  var prices={};var currentName=null;
+  for(var i=hdrRow+1;i<raw.length;i++){
     var r=raw[i];if(!r)continue;
-    var name=String(r[0]||'').trim();
-    var char=r[2]?String(r[2]).trim():'';
-    if(!name||char)continue;
+    var c1=cleanCell(r[0]);
+    if(!c1||c1==='Итого'||(/^\d+\s/.test(c1)&&c1.toLowerCase().includes('склад'))||c1.startsWith('00 '))continue;
     var p=parseFloat(r[priceCol>=0?priceCol:4])||0;
-    if(p>0)prices[name]=p;
+    var charVal=charCol>=0?cleanCell(r[charCol]):'';
+    if(charVal){
+      if(p>0)prices[makeKey(c1,charVal)]=p;
+    } else if(grouped&&isCharRow(c1)){
+      if(currentName&&p>0)prices[makeKey(currentName,c1)]=p;
+    } else if(grouped){
+      currentName=c1; // заголовок группы, не позиция
+    } else {
+      currentName=c1;
+      if(p>0)prices[c1]=p;
+    }
   }
   return prices;
 }
+
 function parseSales(wb){
   var ws=wb.Sheets[wb.SheetNames[0]];
   var raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
@@ -628,30 +679,54 @@ function parseSales(wb){
   }
   if(dateRow<0)return null;
   var dr=raw[dateRow];
+  // Определить шаг между qty и rev: ищем сколько колонок до следующей даты
+  var dateCols=[];
+  for(var c=0;c<dr.length;c++){var v=dr[c];if(v&&typeof v==='string'&&/^\d{2}\.\d{2}\.\d{4}/.test(String(v).trim()))dateCols.push(c);}
+  if(!dateCols.length)return null;
+  var step=dateCols.length>1?(dateCols[1]-dateCols[0]):3;
+  // qty в колонке даты, rev — смещение внутри блока. Определим по подзаголовку (строка ниже даты)
+  var subRow=raw[dateRow+1]||[];
   var weeks=[];
-  for(var c=0;c<dr.length;c++){
-    var v=dr[c];if(!v)continue;
-    var s=String(v).trim();
-    if(s==='Организация'||s==='Номенклатура'||s.toLowerCase().includes('итого'))continue;
-    if(/^\d{2}\.\d{2}\.\d{4}/.test(s))weeks.push({label:s.slice(0,5),qtyCol:c,revCol:c+1});
+  for(var k=0;k<dateCols.length;k++){
+    var qc=dateCols[k];
+    // найти rev-колонку внутри блока [qc, qc+step)
+    var rc=qc+1;
+    for(var cc=qc;cc<qc+step&&cc<subRow.length;cc++){
+      var sv=cleanCell(subRow[cc]).toLowerCase();
+      if(sv.includes('сумм')||sv.includes('выруч'))rc=cc;
+      if(sv.includes('количеств'))qc=cc;
+    }
+    weeks.push({label:cleanCell(dr[dateCols[k]]).slice(0,10),qtyCol:qc,revCol:rc});
   }
-  if(!weeks.length)return null;
-  var tqc=-1,trc=-1;
-  for(var c=weeks[weeks.length-1].revCol+1;c<dr.length;c++){
-    if(dr[c]&&String(dr[c]).toLowerCase().includes('итого')){tqc=c;trc=c+1;break;}
+  // данные после строки "Характеристика" или после подзаголовков
+  var dataStart=dateRow+1;
+  while(dataStart<raw.length){
+    var f=cleanCell(raw[dataStart]?raw[dataStart][0]:'');
+    if(f==='Характеристика'||f==='Номенклатура'||f==='Количество товаров'||f===''||f.toLowerCase().includes('количеств')){dataStart++;}else break;
   }
-  if(tqc<0){tqc=weeks[weeks.length-1].revCol+1;trc=tqc+1;}
-  var firstData=dateRow+2;
-  var orgName=raw[firstData]?String(raw[firstData][0]||'').trim():'';
-  var sales={};
-  for(var i=firstData+1;i<raw.length;i++){
+  // первая строка данных может быть организация (ИП ...)
+  var orgName=cleanCell(raw[dataStart]?raw[dataStart][0]:'');
+  var startData=dataStart;
+  // если первая строка — организация (не характеристика и не похожа на товар-заголовок с продажами), пропустим её как уровень
+  var grouped=false;
+  for(var i=startData;i<raw.length;i++){if(raw[i]&&isCharRow(cleanCell(raw[i][0]))){grouped=true;break;}}
+  var sales={};var currentName=null;
+  for(var i=startData;i<raw.length;i++){
     var r=raw[i];if(!r)continue;
-    var name=String(r[0]||'').trim();
-    if(!name||name.toLowerCase()==='итого'||name===orgName)continue;
+    var c1=cleanCell(r[0]);
+    if(!c1||c1==='Итого')continue;
+    if(c1===orgName)continue; // организация-заголовок (на любом уровне)
     var wData=weeks.map(function(w){return{label:w.label,qty:parseFloat(r[w.qtyCol])||0,rev:parseFloat(r[w.revCol])||0};});
-    var tq=parseFloat(r[tqc])||wData.reduce(function(s,w){return s+w.qty;},0);
-    var tr=parseFloat(r[trc])||wData.reduce(function(s,w){return s+w.rev;},0);
-    if(tq>0||tr>0)sales[name]={weeks:wData,soldQty:tq,soldRev:tr};
+    var tq=wData.reduce(function(s,w){return s+w.qty;},0);
+    var tr=wData.reduce(function(s,w){return s+w.rev;},0);
+    if(grouped&&isCharRow(c1)){
+      if(currentName&&(tq>0||tr>0))sales[makeKey(currentName,c1)]={weeks:wData,soldQty:tq,soldRev:tr};
+    } else if(grouped){
+      currentName=c1; // заголовок наименования
+    } else {
+      currentName=c1;
+      if(tq>0||tr>0)sales[c1]={weeks:wData,soldQty:tq,soldRev:tr};
+    }
   }
   return{sales:sales,weeks:weeks.map(function(w){return w.label;})};
 }
@@ -659,14 +734,18 @@ function parseSales(wb){
 // ===== BUILD ITEMS =====
 function buildItems(stockMap,priceMap,salesData,existingItems){
   var existing={};
-  if(existingItems)existingItems.forEach(function(i){existing[i.name]=i;});
+  // Существующие позиции индексируем по ключу (наименование+характеристика), с фолбэком на имя
+  if(existingItems)existingItems.forEach(function(i){existing[i.key||i.name]=i;});
   var items=[];
   Object.values(stockMap).forEach(function(s){
-    var ex=existing[s.name];
-    var price=priceMap[s.name]||(ex?ex.price:0);
-    var sal=salesData?salesData.sales[s.name]:null;
+    var key=s.key||s.name;
+    var ex=existing[key];
+    var price=priceMap[key]||(ex?ex.price:0);
+    var sal=salesData?(salesData.sales[key]||null):null;
+    // Отображаемое имя: наименование + характеристика
+    var displayName=s.char?(s.name+' · '+s.char):s.name;
     items.push({
-      id:ex?ex.id:uid(),name:s.name,cat:'1С',qty:s.qty,price:price,
+      id:ex?ex.id:uid(),name:displayName,baseName:s.name,char:s.char||'',key:key,cat:'1С',qty:s.qty,price:price,
       soldQty:sal?sal.soldQty:(ex?ex.soldQty||0:0),
       soldRev:sal?sal.soldRev:(ex?ex.soldRev||0:0),
       weeks:sal?sal.weeks:(ex?ex.weeks||[]:[]  ),
@@ -683,7 +762,8 @@ function buildItems(stockMap,priceMap,salesData,existingItems){
   });
   if(existingItems){
     existingItems.forEach(function(ex){
-      if(!stockMap[ex.name]&&(ex.soldQty||0)>0){
+      var exKey=ex.key||ex.name;
+      if(!stockMap[exKey]&&(ex.soldQty||0)>0){
         items.push(Object.assign({},ex,{qty:ex.soldQty}));
       }
     });
