@@ -1270,6 +1270,7 @@ function buildPreview(items,cost,weeks,totalUnits){
   var effectiveCost=totalUnits&&totalUnits>loadedQty?cost*(loadedQty/totalUnits):cost;
   // Выручка по ценам всего оприходованного объёма
   var planRev=items.reduce(function(s,i){return s+((i.qty||0)+(i.soldQty||0))*(i.price||0);},0);
+  var planMarkup=effectiveCost>0?((planRev-effectiveCost)/effectiveCost*100):0; // наценка от себест
   var planMargin=planRev>0?((planRev-effectiveCost)/planRev*100):0;
   var noPrice=items.filter(function(i){return i.noPrice;}).length;
   document.getElementById('cw3-stats').innerHTML=
