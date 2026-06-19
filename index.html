@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v30</title>
+<title>FBSM — Управление лотами v31</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -168,7 +168,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v30</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v31</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -1046,7 +1046,30 @@ function applyDiscount(itemId){
   if(!item.discountHistory)item.discountHistory=[];
   if(item.discountPct>0)item.discountHistory.push({disc:item.discountPct,date:item.discountSetDate||'',price:item.discountPrice||0});
   item.discountPct=rec.disc;item.discountPrice=rec.discPrice;item.discountSetDate=new Date().toISOString().slice(0,10);item.hasDiscount=true;
+  // Если рекомендация была "слить" — помечаем как подтверждённый слив
+  if(rec.isLiquidate)item.isLiquidated=true;
   save();renderDetail();
+}
+// Подтвердить слив (ставит скидку + флаг isLiquidated)
+function applyLiquidate(itemId,lotId){
+  var lid=lotId||activeLotId;
+  var l=lots.find(function(x){return x.id===lid;});if(!l)return;
+  var item=l.items.find(function(i){return i.id===itemId;});if(!item)return;
+  enrichItems([item],l.date,l.secondSeason);item._abcd=getABCDMap(l.items)[item.id]||'D';
+  var m=metrics(l);var rec=calcRecommendedDiscount(item,l,m.recovery>=100);
+  if(rec.disc===0){alert('Скидка не нужна');return;}
+  if(!item.discountHistory)item.discountHistory=[];
+  if(item.discountPct>0)item.discountHistory.push({disc:item.discountPct,date:item.discountSetDate||'',price:item.discountPrice||0});
+  item.discountPct=rec.disc;item.discountPrice=rec.discPrice;item.discountSetDate=new Date().toISOString().slice(0,10);item.hasDiscount=true;item.isLiquidated=true;
+  save();if(activeLotId===lid)renderDetail();renderPromos();
+}
+// Убрать слив (снимает флаг и скидку)
+function removeLiquidate(itemId,lotId){
+  var lid=lotId||activeLotId;
+  var l=lots.find(function(x){return x.id===lid;});if(!l)return;
+  var item=l.items.find(function(i){return i.id===itemId;});if(!item)return;
+  item.isLiquidated=false;item.hasDiscount=false;item.discountPct=0;item.discountPrice=0;
+  save();if(activeLotId===lid)renderDetail();renderPromos();
 }
 function removeDiscount(itemId){
   if(!activeLotId)return;
@@ -1380,7 +1403,9 @@ function metrics(l){
   var projectedRev=factRev+remainRevAtCurrentPrice;
   var projectedMarkup=effectiveCost>0?((projectedRev-effectiveCost)/effectiveCost*100):0;
   var profitTarget=(l.profitTarget!==undefined&&l.profitTarget!==null&&l.profitTarget!=='')?Number(l.profitTarget):(CFG.profitTargetPct||60);
-  return{totalQty:totalQty,soldQty:soldQty,factRev:factRev,planRev:planRev,grossProfit:grossProfit,costSoldTotal:costSoldTotal,remainQty:remainQty,soldPct:soldPct,recovery:recovery,netProfit:netProfit,grossMarginPct:grossMarginPct,lotAgeWeeks:lotAgeWeeks,markup:markup,projectedMarkup:projectedMarkup,projectedRev:projectedRev,profitTarget:profitTarget,daysActive:daysActive,staleItems:staleItems,effectiveCost:effectiveCost,fullCost:fullCost};
+  var soldOutCount=l.items.filter(function(i){return (i.qty||0)===0&&(i.soldQty||0)>0;}).length;
+  var totalPositions=l.items.length;
+  return{totalQty:totalQty,soldQty:soldQty,factRev:factRev,planRev:planRev,grossProfit:grossProfit,costSoldTotal:costSoldTotal,remainQty:remainQty,soldPct:soldPct,recovery:recovery,netProfit:netProfit,grossMarginPct:grossMarginPct,lotAgeWeeks:lotAgeWeeks,markup:markup,projectedMarkup:projectedMarkup,projectedRev:projectedRev,profitTarget:profitTarget,soldOutCount:soldOutCount,totalPositions:totalPositions,daysActive:daysActive,staleItems:staleItems,effectiveCost:effectiveCost,fullCost:fullCost};
 }
 
 // ===== ADVISOR (умный советчик) =====
@@ -1538,9 +1563,10 @@ function renderDetail(){
   var frozenCost=staleItems.reduce(function(s,i){return s+(i.costPer||0)*i.qty;},0);
   var lotRecovered=m.recovery>=100;
   var discRecs={};l.items.forEach(function(i){discRecs[i.id]=calcRecommendedDiscount(i,l,lotRecovered);});
-  var liquidateItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].isLiquidate&&!(i.activePromos||[]).length&&!(i.hasDiscount&&i.discountPct>0);});
+  var liquidatedItems=l.items.filter(function(i){return i.isLiquidated&&(i.qty||0)>0&&!(i.activePromos||[]).length;});
+  var liquidateItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].isLiquidate&&!i.isLiquidated&&(i.qty||0)>0&&!(i.activePromos||[]).length&&!(i.hasDiscount&&i.discountPct>0);});
   var deepenItems=l.items.filter(function(i){return i.hasDiscount&&i.discountPct>0&&discRecs[i.id]&&discRecs[i.id].disc>i.discountPct&&(discRecs[i.id].escalate||discRecs[i.id].isLiquidate)&&!(i.activePromos||[]).length;});
-  var discItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].disc>0&&!discRecs[i.id].isPromoCandidate&&!discRecs[i.id].isLiquidate&&!(i.activePromos||[]).length&&!(i.hasDiscount&&i.discountPct>0);});
+  var discItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].disc>0&&!discRecs[i.id].isPromoCandidate&&!discRecs[i.id].isLiquidate&&!i.isLiquidated&&(i.qty||0)>0&&!(i.activePromos||[]).length&&!(i.hasDiscount&&i.discountPct>0);});
   var promoItems=l.items.filter(function(i){return discRecs[i.id]&&discRecs[i.id].isPromoCandidate&&!discRecs[i.id].isLiquidate&&!(i.activePromos||[]).length;});
   var activeDiscItems=l.items.filter(function(i){return i.hasDiscount&&i.discountPct>0;});
   var activePromos=promos.filter(function(p){return p.lotId===l.id&&p.status==='active';});
@@ -1569,7 +1595,9 @@ function renderDetail(){
     var checked=selectedItems.has(item.id)?'checked':'';
     // Discount/promo cell
     var discCell='<td style="text-align:center;min-width:90px">';
-    if((item.activePromos||[]).length){
+    if((item.qty||0)===0&&(item.soldQty||0)>0){
+      discCell+='<span style="font-size:9px;color:var(--green);font-weight:600">✓ Распродано</span>';
+    } else if((item.activePromos||[]).length){
       (item.activePromos||[]).forEach(function(pid){
         var pp=promos.find(function(pr){return pr.id===pid;});
         if(pp){var pi=pp.items.find(function(x){return x.itemId===item.id;});var pd=pi?pi.discPct:0;discCell+='<span class="chip chip-promo" style="cursor:pointer;display:block;margin-bottom:2px" onclick="openPromoDetail(\''+pp.id+'\')">🏷 '+pp.name+(pd>0?' −'+pd+'%':'')+'</span>';}
@@ -1711,7 +1739,7 @@ function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,disc
   html+='<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
     '<div class="stat-card"><div class="stat-lbl">Пост. скидки</div><div class="stat-val" style="color:var(--yellow)">'+discItems.length+'</div><div class="stat-sub">'+activeDiscItems.length+' активных</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">На акцию</div><div class="stat-val" style="color:var(--orange)">'+promoItems.length+'</div></div>'+
-    ((deepenItems&&deepenItems.length)?'<div class="stat-card" style="border-color:var(--red)"><div class="stat-lbl" style="color:var(--red)">📉 Углубить</div><div class="stat-val" style="color:var(--red)">'+deepenItems.length+'</div></div>':'')+((liquidateItems&&liquidateItems.length)?'<div class="stat-card" style="border-color:var(--red)"><div class="stat-lbl" style="color:var(--red)">🔥 Слить</div><div class="stat-val" style="color:var(--red)">'+liquidateItems.length+'</div></div>':'')+
+    ((deepenItems&&deepenItems.length)?'<div class="stat-card" style="border-color:var(--red)"><div class="stat-lbl" style="color:var(--red)">📉 Углубить</div><div class="stat-val" style="color:var(--red)">'+deepenItems.length+'</div></div>':'')+((liquidatedItems&&liquidatedItems.length)?'<div class="stat-card" style="border-color:var(--red)"><div class="stat-lbl" style="color:var(--red)">🔥 В сливе</div><div class="stat-val" style="color:var(--red)">'+liquidatedItems.length+'</div></div>':'')+((liquidateItems&&liquidateItems.length)?'<div class="stat-card"><div class="stat-lbl">🔥 Рек. слить</div><div class="stat-val" style="color:var(--text2)">'+liquidateItems.length+'</div></div>':'')+
     '<div class="stat-card"><div class="stat-lbl">Активных акций</div><div class="stat-val" style="color:var(--teal)">'+activePromos.length+'</div></div>'+
     '</div>';
   // Liquidate section
@@ -1732,9 +1760,26 @@ function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,disc
     });
     html+='</tbody></table></div></div>';
   }
+  // Подтверждённые сливы (нажал "Слить")
+  if(liquidatedItems&&liquidatedItems.length>0){
+    html+='<div style="background:#2d1010;border:1px solid var(--red);border-radius:8px;padding:10px;margin-bottom:10px">'+
+      '<div style="font-size:11px;font-weight:600;color:var(--red);margin-bottom:4px">🔥 В сливе ('+liquidatedItems.length+' поз.) — подтверждено</div>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Скидка</th><th>Цена со скидкой</th><th></th></tr></thead><tbody>';
+    liquidatedItems.forEach(function(item){
+      var drec=discRecs[item.id];
+      var remain=Math.max(item.qty||0,0);
+      var needDeeper=drec&&drec.disc>item.discountPct;
+      html+='<tr><td style="font-weight:500">'+item.name+'</td><td class="mono">'+remain+'</td><td class="mono">'+fmt(item.price)+'</td>'+
+        '<td><span class="chip chip-disc">🔥 −'+item.discountPct+'%</span></td>'+
+        '<td class="mono">'+fmt(item.discountPrice)+' ₸</td>'+
+        '<td>'+(needDeeper?'<button class="btn btn-danger btn-sm" onclick="applyLiquidate(\''+item.id+'\')" title="'+drec.reason+'">углубить → −'+drec.disc+'%</button> ':'')+'<button class="btn btn-ghost btn-sm" style="font-size:9px" title="Убрать из сливов" onclick="removeLiquidate(\''+item.id+'\')">✕</button></td></tr>';
+    });
+    html+='</tbody></table></div></div>';
+  }
+  // Рекомендованные на слив (ещё не подтверждены)
   if(liquidateItems&&liquidateItems.length>0){
     html+='<div style="background:#3d1a1a;border:1px solid var(--red);border-radius:8px;padding:10px;margin-bottom:10px">'+
-      '<div style="font-size:11px;font-weight:600;color:var(--red);margin-bottom:4px">🔥 Слить остаток ('+liquidateItems.length+' поз.)</div>'+
+      '<div style="font-size:11px;font-weight:600;color:var(--red);margin-bottom:4px">🔥 Рекомендуется слить ('+liquidateItems.length+' поз.)</div>'+
       '<div style="font-size:10px;color:var(--text2);margin-bottom:8px">Маленький остаток, давно не продаётся. Акция бессмысленна — поставьте большую скидку и закройте позицию. '+(m.recovery>=100?'Лот окупился — можно ниже себестоимости.':'')+'</div>'+
       '<div style="overflow-x:auto"><table><thead><tr><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Себест.</th><th>Возр.</th><th>Скидка</th><th>Цена со скидкой</th><th>Статус</th></tr></thead><tbody>';
     liquidateItems.forEach(function(item){
@@ -1746,7 +1791,7 @@ function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,disc
         '<td class="mono '+getAgeClass(item.weeksOnShelf||0)+'">'+(item.weeksOnShelf||0)+'н</td>'+
         '<td><span style="background:#3d1a1a;color:var(--red);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono)">−'+drec.disc+'%</span></td>'+
         '<td class="mono" style="color:'+(below?'var(--red)':'var(--text)')+'">'+fmt(drec.discPrice)+' ₸'+(below?' ⚠':'')+'</td>'+
-        '<td>'+(item.hasDiscount&&item.discountPct>0?'<span class="chip chip-disc">✓ −'+item.discountPct+'%</span><button class="btn btn-ghost btn-sm" style="font-size:9px;padding:1px 4px;margin-left:4px" onclick="removeDiscount(\''+item.id+'\')">✕</button>':'<button class="btn btn-danger btn-sm" onclick="applyDiscount(\''+item.id+'\')">Слить</button>')+'</td></tr>';
+        '<td><button class="btn btn-danger btn-sm" onclick="applyLiquidate(\''+item.id+'\')">Слить</button></td></tr>';
     });
     html+='</tbody></table></div></div>';
   }
@@ -2070,13 +2115,13 @@ function collectDiscPositions(filterLotId,mode){
       var rec=calcRecommendedDiscount(item,l,lotRecovered);
       var needDeeper=item.hasDiscount&&item.discountPct>0&&rec.disc>item.discountPct&&(rec.escalate||rec.isLiquidate);
       if(mode==='disc'){
-        // Постоянные скидки: стоит скидка и это не слив
-        if(item.hasDiscount&&item.discountPct>0&&!rec.isLiquidate&&!(item.activePromos||[]).length){
+        // Постоянные скидки: стоит скидка, не подтверждённый слив, не распродано
+        if(item.hasDiscount&&item.discountPct>0&&!item.isLiquidated&&(item.qty||0)>0&&!(item.activePromos||[]).length){
           rows.push({lot:l,item:item,rec:rec,needDeeper:needDeeper});
         }
       } else if(mode==='liq'){
-        // Сливы: рекомендация слить ИЛИ стоит скидка и рек = слить
-        if((rec.isLiquidate)&&!(item.activePromos||[]).length){
+        // Сливы: ТОЛЬКО подтверждённые (нажал "Слить"). Рекомендации сюда не попадают
+        if(item.isLiquidated&&(item.qty||0)>0&&!(item.activePromos||[]).length){
           rows.push({lot:l,item:item,rec:rec,needDeeper:needDeeper});
         }
       }
@@ -2112,24 +2157,23 @@ function renderDiscSection(el,filterLotId){
 
 function renderLiqSection(el,filterLotId){
   var rows=collectDiscPositions(filterLotId,'liq');
-  if(!rows.length){el.innerHTML='<div class="empty-state"><div style="font-size:40px">🔥</div><div>Нет позиций на слив'+(filterLotId?' по этому лоту':'')+'</div><div style="font-size:11px">Сюда попадают маленькие остатки и мёртвый сток</div></div>';return;}
-  var html='<div style="font-size:11px;color:var(--text2);margin-bottom:10px">Позиций на слив: <b style="color:var(--red)">'+rows.length+'</b> — маленькие остатки и мёртвый сток</div>';
+  if(!rows.length){el.innerHTML='<div class="empty-state"><div style="font-size:40px">🔥</div><div>Нет позиций в сливах'+(filterLotId?' по этому лоту':'')+'</div><div style="font-size:11px">Подтвердите слив кнопкой «Слить» в карточке лота или в рекомендациях</div></div>';return;}
+  var html='<div style="font-size:11px;color:var(--text2);margin-bottom:10px">В сливах: <b style="color:var(--red)">'+rows.length+'</b> поз. (подтверждённые)</div>';
   html+='<div style="overflow-x:auto"><table><thead><tr><th>Лот</th><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Себест.</th><th>Скидка</th><th>Цена</th><th></th></tr></thead><tbody>';
   rows.forEach(function(r){
     var item=r.item;var rec=r.rec;
     var remain=Math.max(item.qty||0,0);
-    var below=rec.discPrice<(item.costPer||0);
+    var below=(item.discountPrice||0)<(item.costPer||0);
     html+='<tr>'+
       '<td style="font-size:10px;color:var(--text3)"><span style="cursor:pointer;color:var(--accent)" onclick="openDetail(\''+r.lot.id+'\')">'+r.lot.name+'</span></td>'+
       '<td style="font-weight:500">'+item.name+'</td>'+
       '<td class="mono">'+remain+'</td>'+
       '<td class="mono">'+fmt(item.price)+'</td>'+
       '<td class="mono" style="color:var(--text3)">'+fmt(item.costPer)+'</td>'+
-      '<td><span style="background:#3d1a1a;color:var(--red);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono)">🔥 −'+rec.disc+'%</span></td>'+
-      '<td class="mono" style="color:'+(below?'var(--red)':'var(--text)')+'">'+fmt(rec.discPrice)+' ₸'+(below?' ⚠':'')+'</td>'+
-      '<td>'+(item.hasDiscount&&item.discountPct>0?
-        '<span class="chip chip-disc" style="font-size:9px">−'+item.discountPct+'%</span> '+(rec.disc>item.discountPct?'<button class="btn btn-danger btn-sm" onclick="applyDiscountFrom(\''+r.lot.id+'\',\''+item.id+'\')">углубить</button>':''):
-        '<button class="btn btn-danger btn-sm" onclick="applyDiscountFrom(\''+r.lot.id+'\',\''+item.id+'\')">Слить</button>')+'</td></tr>';
+      '<td><span style="background:#3d1a1a;color:var(--red);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono)">🔥 −'+item.discountPct+'%</span></td>'+
+      '<td class="mono" style="color:'+(below?'var(--red)':'var(--text)')+'">'+fmt(item.discountPrice)+' ₸'+(below?' ⚠':'')+'</td>'+
+      '<td>'+(r.needDeeper?'<button class="btn btn-danger btn-sm" onclick="applyLiquidate(\''+item.id+'\',\''+r.lot.id+'\')" title="'+rec.reason+'">углубить → −'+rec.disc+'%</button> ':'')+
+        '<button class="btn btn-ghost btn-sm" style="font-size:9px" title="Убрать из сливов" onclick="removeLiquidate(\''+item.id+'\',\''+r.lot.id+'\')">✕</button></td></tr>';
   });
   html+='</tbody></table></div>';
   el.innerHTML=html;
