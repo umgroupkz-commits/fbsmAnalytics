@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v38</title>
+<title>FBSM — Управление лотами v39</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -168,7 +168,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v38</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v39</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -1613,6 +1613,7 @@ function openDetail(id){
   activeLotId=id;detailFilters={abcd:new Set(),age:new Set()};detailMode='abcd_rev';
   selectedItems=new Set();lastCheckedIdx=null;showABCDXYZ=false;activeDetailTab='dtab-table';
   detailSort={col:'_abcd',dir:1};
+  promoCandSel=new Set();_promoCandLast=null;
   renderDetail();
 }
 function renderDetail(){
@@ -1892,15 +1893,15 @@ function buildDiscTab(l,m,discItems,promoItems,activeDiscItems,activePromos,disc
   // Promo candidates
   if(promoItems.length>0){
     html+='<div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:10px">'+
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-size:11px;font-weight:600">🏷 Кандидаты на акцию ('+promoItems.length+' поз.)</div>'+
-      '<button class="btn btn-primary btn-sm" onclick="moveAllPromoCandidates()" style="margin-left:auto"><i class="ti ti-plus"></i> Создать акцию из всех</button></div>'+
-      '<div style="font-size:10px;color:var(--text2);margin-bottom:8px">Большая скидка — рекомендуется временная акция с дедлайном'+(l.secondSeason?' (для прошлого сезона порог выше — много идёт в постоянную)':'')+'</div>'+
-      '<div style="overflow-x:auto"><table><thead><tr><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Прод.шт</th><th>Ср/мес</th><th>Запас</th><th>Возр.</th><th>Рек.скидка</th><th>Срок акции</th><th>Продастся</th><th>Причина</th><th></th></tr></thead><tbody>';
-    promoItems.forEach(function(item){
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><div style="font-size:11px;font-weight:600">🏷 Кандидаты на акцию ('+promoItems.length+' поз.)</div>'+
+      '<div style="margin-left:auto;display:flex;gap:6px"><button class="btn btn-warn btn-sm" onclick="promoCandFromSelected()">🏷 В акцию из отмеченных (<span id="promocand-cnt">0</span>)</button><button class="btn btn-primary btn-sm" onclick="moveAllPromoCandidates()"><i class="ti ti-plus"></i> Из всех</button></div></div>'+
+      '<div style="font-size:10px;color:var(--text2);margin-bottom:8px">Большая скидка — рекомендуется временная акция с дедлайном. Отметь позиции (Shift — диапазон) или жми «В акцию» в строке'+(l.secondSeason?' · прошлый сезон: порог выше':'')+'</div>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th><input type="checkbox" onclick="promoCandToggleAll(this)"></th><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Прод.шт</th><th>Ср/мес</th><th>Запас</th><th>Возр.</th><th>Рек.скидка</th><th>Срок акции</th><th>Продастся</th><th>Причина</th><th></th></tr></thead><tbody>';
+    promoItems.forEach(function(item,pci){
       var drec=discRecs[item.id];
       var remain=Math.max(item.qty||0,0);
       var promoPeriod=estimatePromoPeriod(item,drec.disc);
-      html+='<tr><td style="font-weight:500">'+item.name+'</td><td class="mono">'+remain+'</td><td class="mono">'+fmt(item.price)+'</td>'+
+      html+='<tr><td><input type="checkbox" class="promocand-chk" data-id="'+item.id+'" data-idx="'+pci+'" '+(promoCandSel.has(item.id)?'checked':'')+' onclick="promoCandClick('+pci+',this,event)"></td><td style="font-weight:500">'+item.name+'</td><td class="mono">'+remain+'</td><td class="mono">'+fmt(item.price)+'</td>'+
         '<td class="mono'+(item.soldQty===0?' num-zero':'')+'">'+(item.soldQty||0)+'</td>'+
         '<td class="mono">'+(item.soldQty>0?fmtD(item.avgPerMonth):'—')+'</td>'+
         '<td class="mono '+getCoverClass(item.coverMonths)+'">'+(item.coverMonths!==null&&item.soldQty>0?fmtD(item.coverMonths)+'м':'—')+'</td>'+
@@ -2076,6 +2077,35 @@ function bulkMoveToNewPromo(){
   // Open create promo modal, remember selected items to add after
   window._pendingPromoItems=Array.from(selectedItems);
   openCreatePromo(l.id);
+}
+var promoCandSel=new Set(); // выбранные кандидаты в акцию (внутри лота)
+var _promoCandLast=null;
+function promoCandClick(idx,el,ev){
+  var id=el.getAttribute('data-id');
+  if(ev&&ev.shiftKey&&_promoCandLast!==null){
+    var lo=Math.min(_promoCandLast,idx),hi=Math.max(_promoCandLast,idx);
+    document.querySelectorAll('.promocand-chk').forEach(function(c){
+      var ci=parseInt(c.getAttribute('data-idx'));
+      if(ci>=lo&&ci<=hi){c.checked=el.checked;var cid=c.getAttribute('data-id');if(el.checked)promoCandSel.add(cid);else promoCandSel.delete(cid);}
+    });
+  } else {
+    if(el.checked)promoCandSel.add(id);else promoCandSel.delete(id);
+  }
+  _promoCandLast=idx;
+  updatePromoCandCount();
+}
+function promoCandToggleAll(el){
+  document.querySelectorAll('.promocand-chk').forEach(function(c){c.checked=el.checked;var id=c.getAttribute('data-id');if(el.checked)promoCandSel.add(id);else promoCandSel.delete(id);});
+  updatePromoCandCount();
+}
+function updatePromoCandCount(){
+  var cnt=document.getElementById('promocand-cnt');
+  if(cnt){var v=0;document.querySelectorAll('.promocand-chk').forEach(function(c){if(promoCandSel.has(c.getAttribute('data-id')))v++;});cnt.textContent=v;}
+}
+function promoCandFromSelected(){
+  if(promoCandSel.size===0){alert('Отметьте позиции');return;}
+  openPromoPickerFor(Array.from(promoCandSel));
+  promoCandSel=new Set();
 }
 function moveAllPromoCandidates(){
   var l=lots.find(function(x){return x.id===activeLotId;});if(!l)return;
