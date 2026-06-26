@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v44</title>
+<title>FBSM — Управление лотами v47</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -168,10 +168,11 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v44</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v47</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
+    <button class="btn btn-ghost" onclick="openBatchUpdate()"><i class="ti ti-refresh"></i> Обновить все</button>
     <button class="btn btn-primary" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button>
   </div>
 </div>
@@ -246,6 +247,10 @@ tr:hover td{background:#1a2030}
         </div><input type="file" id="f-sales" accept=".xlsx,.xls" style="display:none" onchange="hFile(event,'sales','draft')"></div>
     </div>
     <div id="files-summary" style="font-size:11px;color:var(--text2);background:var(--surface2);border-radius:8px;padding:9px 13px;min-height:32px"></div>
+    <div style="background:var(--surface2);border-radius:8px;padding:10px 13px;margin-top:10px;display:flex;align-items:flex-start;gap:10px">
+      <input type="checkbox" id="cs-batch" style="width:16px;height:16px;margin-top:2px">
+      <label for="cs-batch" style="font-size:12px;color:var(--text);cursor:pointer"><b>Сразу несколько лотов</b><div style="font-size:10px;color:var(--text3);margin-top:2px">Файлы содержат несколько групп (лотов). Программа распознает группы, ты сможешь объединить их и задать параметры каждому. Нужны остатки + прайс (продажи по желанию).</div></label>
+    </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modal-create')">Отмена</button><button class="btn btn-primary" id="cw1-next" style="display:none" onclick="cwNext1()">Далее →</button></div>
   </div>
   <div id="cw2" style="display:none">
@@ -276,6 +281,59 @@ tr:hover td{background:#1a2030}
     <div id="cw3-margin" style="margin-bottom:10px"></div>
     <div style="overflow-x:auto;max-height:280px;overflow-y:auto"><table><thead id="cw3-thead"></thead><tbody id="cw3-tbody"></tbody></table></div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="cwGoTo(2)">← Назад</button><button class="btn btn-success" onclick="saveLot()"><i class="ti ti-device-floppy"></i> Сохранить</button></div>
+  </div>
+</div></div>
+
+<!-- MODAL BATCH (несколько лотов) -->
+<div id="modal-batch" class="modal-overlay" style="display:none"><div class="modal" style="max-width:860px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <div style="flex:1"><div class="modal-title" id="batch-title">Распознаны группы</div><div style="font-size:11px;color:var(--text2)" id="batch-sub">Отметь группы для объединения в один лот, либо оставь как есть</div></div>
+    <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-batch')"><i class="ti ti-x"></i></button>
+  </div>
+  <!-- Шаг A: список групп -->
+  <div id="batch-step-groups">
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn btn-warn btn-sm" onclick="batchMergeSelected()">🔗 Объединить отмеченные</button>
+      <button class="btn btn-danger btn-sm" onclick="batchDeleteSelected()">🗑 Удалить отмеченные</button>
+      <span style="font-size:10px;color:var(--text3)" id="batch-sel-info"></span>
+      <span style="margin-left:auto;font-size:11px;color:var(--text2)" id="batch-count"></span>
+    </div>
+    <div style="overflow-x:auto;max-height:420px;overflow-y:auto"><table><thead><tr><th><input type="checkbox" onclick="batchToggleAll(this)"></th><th>Лот (группа)</th><th>Наименований</th><th>Итого шт</th><th></th></tr></thead><tbody id="batch-groups-body"></tbody></table></div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modal-batch')">Отмена</button><button class="btn btn-primary" onclick="batchToParams()">Далее: параметры →</button></div>
+  </div>
+  <!-- Шаг B: параметры по каждому лоту -->
+  <div id="batch-step-params" style="display:none">
+    <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Задай параметры для каждого лота. Себестоимость и цель прибыли — обязательно.</div>
+    <div style="max-height:440px;overflow-y:auto" id="batch-params-body"></div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="batchBackToGroups()">← Назад к группам</button><button class="btn btn-success" onclick="batchSaveAll()"><i class="ti ti-device-floppy"></i> Создать все лоты</button></div>
+  </div>
+</div></div>
+
+<!-- MODAL BATCH UPDATE (обновить все лоты) -->
+<div id="modal-batchupd" class="modal-overlay" style="display:none"><div class="modal" style="max-width:680px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <div style="flex:1"><div class="modal-title">Обновить все лоты</div><div style="font-size:11px;color:var(--text2)">Загрузи общие файлы — данные разойдутся по всем лотам по наименованиям</div></div>
+    <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-batchupd')"><i class="ti ti-x"></i></button>
+  </div>
+  <div style="background:var(--surface2);border-radius:8px;padding:10px 13px;margin-bottom:12px;display:flex;align-items:flex-start;gap:10px">
+    <input type="checkbox" id="bu-new-positions" style="width:16px;height:16px;margin-top:2px" onchange="toggleBatchUpdMode()">
+    <label for="bu-new-positions" style="font-size:12px;color:var(--text);cursor:pointer"><b>Оприходованы новые позиции</b><div style="font-size:10px;color:var(--text3);margin-top:2px">Отметь если завезли новый товар. Нужны остатки + прайс. Без галочки — только продажи, остатки пересчитаются.</div></label>
+  </div>
+  <div class="grid3" style="margin-bottom:12px">
+    <div id="bu-col-stock" style="display:none"><div class="lbl" style="margin-bottom:5px">📦 Остатки</div>
+      <div class="upload-box" id="bu-box-stock" onclick="document.getElementById('bu-f-stock').click()"><div style="font-size:18px">📦</div><div id="bu-st-stock" style="font-size:10px;color:var(--text3)">Не загружен</div></div>
+      <input type="file" id="bu-f-stock" accept=".xlsx,.xls" style="display:none" onchange="buFile(event,'stock')"></div>
+    <div id="bu-col-price" style="display:none"><div class="lbl" style="margin-bottom:5px">💰 Прайс</div>
+      <div class="upload-box" id="bu-box-price" onclick="document.getElementById('bu-f-price').click()"><div style="font-size:18px">💰</div><div id="bu-st-price" style="font-size:10px;color:var(--text3)">Не загружен</div></div>
+      <input type="file" id="bu-f-price" accept=".xlsx,.xls" style="display:none" onchange="buFile(event,'price')"></div>
+    <div><div class="lbl" style="margin-bottom:5px">📊 Продажи</div>
+      <div class="upload-box" id="bu-box-sales" onclick="document.getElementById('bu-f-sales').click()"><div style="font-size:18px">📊</div><div id="bu-st-sales" style="font-size:10px;color:var(--text3)">Не загружен</div></div>
+      <input type="file" id="bu-f-sales" accept=".xlsx,.xls" style="display:none" onchange="buFile(event,'sales')"></div>
+  </div>
+  <div id="bu-summary" style="font-size:11px;color:var(--text2);background:var(--surface2);border-radius:8px;padding:9px 13px;min-height:32px;margin-bottom:10px"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-ghost" onclick="closeModal('modal-batchupd')">Отмена</button>
+    <button class="btn btn-success" id="bu-btn" style="display:none" onclick="applyBatchUpdate()"><i class="ti ti-refresh"></i> Обновить все лоты</button>
   </div>
 </div></div>
 
@@ -814,6 +872,188 @@ function parseSales(wb){
   return{sales:sales,weeks:weeks.map(function(w){return w.label;})};
 }
 
+// ===== ГРУППОВОЙ ПАРСИНГ (несколько лотов из общих файлов) =====
+// Группы — по ОТСТУПУ (indent) из 1С: indent=0 = верхний уровень (бренд/лот), вложенное → позиции.
+// SheetJS не отдаёт indent через API, читаем сырой styles.xml + sheet XML (нужен bookFiles:true при чтении).
+function decodeWbXml(f){
+  if(!f)return '';
+  if(typeof f==='string')return f;
+  var c=f.content||f;
+  if(typeof c==='string')return c;
+  try{return new TextDecoder('utf-8').decode(c);}catch(e){try{return String.fromCharCode.apply(null,c);}catch(e2){return '';}}
+}
+function extractRowIndents(wb){
+  if(!wb||!wb.files)return null;
+  var stylesXml=decodeWbXml(wb.files['xl/styles.xml']);
+  var sheetKey=Object.keys(wb.files).find(function(k){return /worksheets\/sheet1\.xml$/.test(k);})||Object.keys(wb.files).find(function(k){return /worksheets\/sheet.*\.xml$/.test(k);});
+  var sheetXml=decodeWbXml(wb.files[sheetKey]);
+  if(!stylesXml||!sheetXml)return null;
+  var m=stylesXml.match(/<cellXfs[^>]*>([\s\S]*?)<\/cellXfs>/);
+  if(!m)return null;
+  var xfs=m[1].match(/<xf\b[\s\S]*?(?:\/>|<\/xf>)/g)||[];
+  var indentByXf=xfs.map(function(xf){var im=xf.match(/indent="(\d+)"/);return im?parseInt(im[1]):0;});
+  var indentByRow={},cellRe=/<c r="A(\d+)"([^>]*?)\/?>/g,mm;
+  while((mm=cellRe.exec(sheetXml))){
+    var row=parseInt(mm[1]);var sm=mm[2].match(/s="(\d+)"/);
+    indentByRow[row]=indentByXf[sm?parseInt(sm[1]):0]||0;
+  }
+  return indentByRow;
+}
+function parseGroupedStock(wb){
+  var indents=extractRowIndents(wb);
+  var ws=wb.Sheets[wb.SheetNames[0]];
+  var range=XLSX.utils.decode_range(ws['!ref']);
+  // колонка Итого
+  var totalCol=2;
+  for(var R=range.s.r;R<=Math.min(range.s.r+8,range.e.r);R++){
+    for(var C=range.s.c;C<=range.e.c;C++){
+      var cc=ws[XLSX.utils.encode_cell({r:R,c:C})];
+      if(cc&&String(cc.v).trim()==='Итого'){totalCol=C;}
+    }
+  }
+  if(!indents||Object.keys(indents).length===0)return parseGroupedStockMath(wb,totalCol);
+  // Сначала собрать все строки с именем/qty/indent
+  var allRows=[];
+  for(var R=range.s.r;R<=range.e.r;R++){
+    var cellA=ws[XLSX.utils.encode_cell({r:R,c:0})];
+    var cellQ=ws[XLSX.utils.encode_cell({r:R,c:totalCol})];
+    var name=cellA&&cellA.v!=null?cleanCell(cellA.v):'';
+    if(!name||name.indexOf('Итого')>=0||name==='Номенклатура'||name==='Остатки на складах'||name==='Остатки'||isWarehouseRow(name))continue;
+    allRows.push({name:name,qty:cellQ&&cellQ.v!=null?(parseFloat(cellQ.v)||0):0,indent:indents[R+1]||0});
+  }
+  // Группа = indent 0 (верхний уровень). Позиции = только ЛИСТЬЯ (нет вложенных глубже).
+  // Промежуточные подгруппы (indent 2,4) пропускаем — иначе задвоение количества.
+  var groups=[],current=null;
+  for(var i=0;i<allRows.length;i++){
+    var row=allRows[i];
+    var nextIndent=(i+1<allRows.length)?allRows[i+1].indent:0;
+    var isLeaf=nextIndent<=row.indent; // у строки нет детей глубже
+    if(row.indent===0){
+      current={group:row.name,total:row.qty,items:[]};groups.push(current);
+      if(nextIndent<=0)current.items.push({name:row.name,qty:row.qty}); // группа без вложенных = сама позиция
+    } else if(current&&isLeaf){
+      current.items.push({name:row.name,qty:row.qty});
+    }
+  }
+  groups.forEach(function(g){if(g.items.length===0)g.items.push({name:g.group,qty:g.total});});
+  return groups;
+}
+// Запасной математический метод (если indent не прочитался)
+function parseGroupedStockMath(wb,totalCol){
+  var ws=wb.Sheets[wb.SheetNames[0]];
+  var raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
+  if(totalCol==null)totalCol=2;
+  var rows=[];
+  for(var i=0;i<raw.length;i++){
+    var nm=raw[i]&&raw[i][0]?cleanCell(raw[i][0]):'';
+    if(!nm||nm.indexOf('Итого')>=0||nm==='Номенклатура'||nm.indexOf('Остатки')>=0||isWarehouseRow(nm))continue;
+    rows.push({name:nm,qty:parseFloat(raw[i][totalCol])||0});
+  }
+  return groupRows(rows);
+}
+// Математическая группировка (fallback): группа = qty равно сумме следующих
+function groupRows(rows){
+  var groups=[];var i=0;
+  while(i<rows.length){
+    var g=rows[i];var j=i+1;var sum=0;var children=[];
+    while(j<rows.length&&sum<g.qty-0.5){sum+=rows[j].qty;children.push(rows[j]);j++;}
+    if(Math.abs(sum-g.qty)<1&&children.length>0){
+      if(children.length===1&&children[0].name===g.name){groups.push({group:g.name,items:[{name:g.name,qty:g.qty}],total:g.qty});}
+      else {groups.push({group:g.name,items:children.map(function(c){return{name:c.name,qty:c.qty};}),total:g.qty});}
+      i=j;
+    } else {groups.push({group:g.name,items:[{name:g.name,qty:g.qty}],total:g.qty});i++;}
+  }
+  return groups;
+}
+// Групповой парсинг продаж: возвращает группы с наименованиями и понедельными продажами
+function parseGroupedSales(wb){
+  var indents=extractRowIndents(wb);
+  var ws=wb.Sheets[wb.SheetNames[0]];
+  var range=XLSX.utils.decode_range(ws['!ref']);
+  function cell(r,c){var x=ws[XLSX.utils.encode_cell({r:r,c:c})];return x?x.v:null;}
+  // найти строку с датами и колонки недель (qty/rev пары), исключая Итого
+  var dateRow=-1;
+  for(var R=range.s.r;R<=Math.min(range.s.r+10,range.e.r);R++){
+    for(var C=range.s.c;C<=range.e.c;C++){
+      var v=cell(R,C);
+      if(v&&typeof v==='string'&&/^\d{2}\.\d{2}\.\d{4}/.test(v.trim())){dateRow=R;break;}
+    }
+    if(dateRow>=0)break;
+  }
+  if(dateRow<0)return parseGroupedSalesFallback(wb);
+  // колонки недель: дата → qtyCol, следующая → revCol; пропускаем Итого
+  var weeks=[];
+  for(var C=range.s.c;C<=range.e.c;C++){
+    var v=cell(dateRow,C);
+    if(v&&typeof v==='string'&&/^\d{2}\.\d{2}\.\d{4}/.test(v.trim())){
+      weeks.push({label:String(v).slice(0,10),qtyCol:C,revCol:C+1});
+    }
+  }
+  if(!weeks.length)return parseGroupedSalesFallback(wb);
+  var dataStart=dateRow+2; // после дат и подзаголовков
+  // Собрать все строки с indent
+  var sales={};
+  var allRows=[];
+  for(var R=dataStart;R<=range.e.r;R++){
+    var nm=cell(R,0);
+    var name=nm!=null?cleanCell(nm):'';
+    if(!name||name==='Итого'||name==='Номенклатура'||isWarehouseRow(name))continue;
+    var ind=indents?(indents[R+1]||0):0;
+    allRows.push({R:R,name:name,indent:ind});
+  }
+  // Брать только ЛИСТЬЯ (как в остатках) — реальные товары, не группы/подгруппы
+  for(var i=0;i<allRows.length;i++){
+    var row=allRows[i];
+    var nextIndent=(i+1<allRows.length)?allRows[i+1].indent:0;
+    var isLeaf=indents?(nextIndent<=row.indent):true;
+    if(!isLeaf)continue; // промежуточная группа/подгруппа — пропускаем
+    var wData=weeks.map(function(w){return{label:w.label,qty:parseFloat(cell(row.R,w.qtyCol))||0,rev:parseFloat(cell(row.R,w.revCol))||0};});
+    var tq=wData.reduce(function(s,w){return s+w.qty;},0);
+    var tr=wData.reduce(function(s,w){return s+w.rev;},0);
+    if(tq>0||tr>0){
+      if(sales[row.name]){
+        sales[row.name].soldQty+=tq;sales[row.name].soldRev+=tr;
+        sales[row.name].weeks.forEach(function(w,wi){w.qty+=wData[wi].qty;w.rev+=wData[wi].rev;});
+      } else {
+        sales[row.name]={weeks:wData,soldQty:tq,soldRev:tr};
+      }
+    }
+  }
+  return {sales:sales,weeks:weeks.map(function(w){return w.label;})};
+}
+function parseGroupedSalesFallback(wb){
+  return parseSales(wb);
+}
+// Распределить файлы по лотам согласно группировке
+// lotDefs: [{name, groups:[имена групп], cost, totalUnits, profitTarget, sellBy, secondSeason}]
+// groupedStock: результат parseGroupedStock; prices: parsePrice; sales: parseSales
+function buildLotsFromBatch(lotDefs,groupedStock,prices,sales){
+  var groupMap={};groupedStock.forEach(function(g){groupMap[g.group]=g;});
+  var newLots=[];
+  lotDefs.forEach(function(def){
+    // собрать все наименования из выбранных групп
+    var stockMap={};
+    def.groups.forEach(function(gname){
+      var g=groupMap[gname];if(!g)return;
+      g.items.forEach(function(it){
+        if(it.qty>0)stockMap[it.name]={name:it.name,char:'',key:it.name,qty:(stockMap[it.name]?stockMap[it.name].qty:0)+it.qty};
+      });
+    });
+    var items=buildItems(stockMap,prices||{},sales||null,null);
+    var lot={
+      id:uid(),name:def.name,supplier:def.supplier||'',date:def.date||new Date().toISOString().slice(0,10),
+      cost:def.cost||0,totalUnits:def.totalUnits||0,profitTarget:def.profitTarget,
+      sellBy:def.sellBy||'',secondSeason:!!def.secondSeason,status:'active',
+      sourceGroups:def.groups?def.groups.slice():[], // из каких групп верхнего уровня собран лот
+      items:items,weeks:sales?sales.weeks:[],createdAt:new Date().toISOString()
+    };
+    calcCosts(lot.items,lot.cost,lot.totalUnits);
+    enrichItems(lot.items,lot.date,lot.secondSeason);
+    newLots.push(lot);
+  });
+  return newLots;
+}
+
 // ===== BUILD ITEMS =====
 function buildItems(stockMap,priceMap,salesData,existingItems){
   var existing={};
@@ -1329,7 +1569,10 @@ function hFile(e,type,mode){var f=e.target.files[0];if(f)readFile(f,type,mode);}
 function readFile(file,type,mode){
   var reader=new FileReader();
   reader.onload=function(ev){
-    var wb=XLSX.read(ev.target.result,{type:'array',cellDates:true});
+    var wb=XLSX.read(ev.target.result,{type:'array',cellDates:true,bookFiles:true});
+    // Сохраняем сырой workbook для группового режима
+    if(mode!=='upd'){if(!window._draftWb)window._draftWb={};window._draftWb[type]=wb;}
+    else {if(!window._updWb)window._updWb={};window._updWb[type]=wb;}
     var result=null;
     if(type==='stock')result=parseStock(wb);
     if(type==='price')result=parsePrice(wb);
@@ -1389,6 +1632,10 @@ function openCreateLot(){
 }
 function cwNext1(){
   if(!draft.stock||!draft.price){alert('Загрузите остатки и прайс');return;}
+  // Режим нескольких лотов
+  if(document.getElementById('cs-batch')&&document.getElementById('cs-batch').checked){
+    openBatchReview();return;
+  }
   var items=buildItems(draft.stock,draft.price,draft.sales,null);
   var noPrice=items.filter(function(i){return i.noPrice;}).length;
   var totalQty=items.reduce(function(s,i){return s+i.qty;},0);
@@ -1396,6 +1643,309 @@ function cwNext1(){
   var oprihod=totalQty+soldTotal;
   document.getElementById('p-info').innerHTML='Позиций: <b style="color:var(--text)">'+items.length+'</b> · На складе: <b style="color:var(--text)">'+totalQty+'</b>'+(soldTotal>0?' · Продано: <b style="color:var(--text)">'+soldTotal+'</b> · Оприходовано: <b style="color:var(--accent)">'+oprihod+'</b>':'')+(noPrice>0?' · <span style="color:var(--orange)">⚠ '+noPrice+' без цены</span>':'');
   cwGoTo(2);
+}
+// ===== ПАКЕТНАЯ ЗАГРУЗКА НЕСКОЛЬКИХ ЛОТОВ =====
+var batchGroups=[];      // распознанные группы из остатков
+var batchMerges=[];      // [{name, groups:[...]}] — итоговая группировка
+var batchSel=new Set();  // выбранные группы для объединения
+var batchUpdData={stock:null,price:null,sales:null};
+function openBatchUpdate(){
+  if(!lots.length){alert('Нет лотов для обновления. Сначала создайте лоты.');return;}
+  batchUpdData={stock:null,price:null,sales:null};
+  window._buWb=null;
+  document.getElementById('bu-new-positions').checked=false;
+  document.getElementById('bu-col-stock').style.display='none';
+  document.getElementById('bu-col-price').style.display='none';
+  ['stock','price','sales'].forEach(function(t){
+    var st=document.getElementById('bu-st-'+t);if(st){st.textContent='Не загружен';st.style.color='var(--text3)';}
+    var f=document.getElementById('bu-f-'+t);if(f)f.value='';
+  });
+  document.getElementById('bu-summary').innerHTML='';
+  document.getElementById('bu-btn').style.display='none';
+  document.getElementById('modal-batchupd').style.display='flex';
+}
+function toggleBatchUpdMode(){
+  var np=document.getElementById('bu-new-positions').checked;
+  document.getElementById('bu-col-stock').style.display=np?'':'none';
+  document.getElementById('bu-col-price').style.display=np?'':'none';
+  if(!np){batchUpdData.stock=null;batchUpdData.price=null;
+    var ss=document.getElementById('bu-st-stock');if(ss){ss.textContent='Не загружен';ss.style.color='var(--text3)';}
+    var sp=document.getElementById('bu-st-price');if(sp){sp.textContent='Не загружен';sp.style.color='var(--text3)';}}
+  buUpdateSummary();
+}
+function buFile(e,type){
+  var f=e.target.files[0];if(!f)return;
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    var wb=XLSX.read(ev.target.result,{type:'array',cellDates:true,bookFiles:true});
+    if(!window._buWb)window._buWb={};window._buWb[type]=wb;
+    var result=null;
+    if(type==='stock')result=parseStock(wb);
+    if(type==='price')result=parsePrice(wb);
+    if(type==='sales'){var r=parseSales(wb);if(r)result=r;}
+    if(!result){alert('Не распознан: '+f.name);return;}
+    batchUpdData[type]=result;
+    var st=document.getElementById('bu-st-'+type);st.style.color='var(--green)';
+    if(type==='stock')st.textContent='✓ '+Object.keys(result).length+' поз.';
+    if(type==='price')st.textContent='✓ '+Object.keys(result).length+' цен';
+    if(type==='sales')st.textContent='✓ '+Object.keys(result.sales).length+' поз., '+result.weeks.length+' нед.';
+    buUpdateSummary();
+  };
+  reader.readAsArrayBuffer(f);
+}
+function buUpdateSummary(){
+  var np=document.getElementById('bu-new-positions').checked;
+  var p=[];
+  if(np){
+    if(batchUpdData.stock)p.push('<span style="color:var(--green)">✓ Остатки</span>');
+    if(batchUpdData.price)p.push('<span style="color:var(--green)">✓ Цены</span>');
+  }
+  if(batchUpdData.sales)p.push('<span style="color:var(--green)">✓ Продажи: '+batchUpdData.sales.weeks.length+' нед</span>');
+  document.getElementById('bu-summary').innerHTML=p.length?p.join(' · '):(np?'Загрузите остатки + прайс + продажи':'Загрузите файл продаж');
+  var ready=np?(batchUpdData.stock&&batchUpdData.price):(!!batchUpdData.sales);
+  document.getElementById('bu-btn').style.display=ready?'flex':'none';
+}
+function applyBatchUpdate(){
+  var np=document.getElementById('bu-new-positions').checked;
+  // Групповой разбор остатков (если есть файл) — чтобы знать группы верхнего уровня
+  var groups=null;
+  if(np&&window._buWb&&window._buWb.stock){groups=parseGroupedStock(window._buWb.stock);}
+  // Продажи групповым методом (листья) — корректно по позициям
+  var gSales=batchUpdData.sales;
+  if(window._buWb&&window._buWb.sales){var gs=parseGroupedSales(window._buWb.sales);if(gs)gSales=gs;}
+  // Карта: группа верхнего уровня → лот (по sourceGroups, фолбэк по имени лота)
+  function findLotForGroup(gname){
+    var byGroup=lots.find(function(l){return (l.sourceGroups||[]).indexOf(gname)>=0;});
+    if(byGroup)return byGroup;
+    return lots.find(function(l){return l.name===gname;})||null;
+  }
+  var updatedLots=0,updatedItems=0,addedItems=0;
+  var newGroups=[]; // группы которых нет ни в одном лоте
+
+  if(np&&groups){
+    // РЕЖИМ ОПРИХОДОВАНИЯ С ГРУППАМИ: разложить по лотам, добавить новые позиции, найти новые группы
+    groups.forEach(function(g){
+      var lot=findLotForGroup(g.group);
+      if(!lot){newGroups.push(g.group);return;}
+      if(lot.status==='closed')return;
+      var existKeys={};lot.items.forEach(function(it){existKeys[it.key||it.name]=it;});
+      g.items.forEach(function(gi){
+        if(gi.qty<=0&&!existKeys[gi.name])return;
+        var ex=existKeys[gi.name];
+        var price=(batchUpdData.price&&batchUpdData.price[gi.name])||(ex?ex.price:0);
+        var sal=gSales?gSales.sales[gi.name]:null;
+        if(ex){
+          ex.qty=gi.qty;
+          if(price>0)ex.price=price;
+          if(sal){ex.soldQty=sal.soldQty;ex.soldRev=sal.soldRev;ex.weeks=sal.weeks;}
+          updatedItems++;
+        } else {
+          // новая позиция в существующем лоте
+          var newItem=buildItems({n:{name:gi.name,char:'',key:gi.name,qty:gi.qty}},batchUpdData.price||{},sal?{sales:{},weeks:gSales.weeks}:null,null)[0];
+          if(sal){newItem.soldQty=sal.soldQty;newItem.soldRev=sal.soldRev;newItem.weeks=sal.weeks;}
+          lot.items.push(newItem);
+          addedItems++;
+        }
+      });
+      calcCosts(lot.items,lot.cost,lot.totalUnits);
+      enrichItems(lot.items,lot.date,lot.secondSeason);
+      if(gSales)lot.weeks=gSales.weeks;
+      lot.updatedAt=new Date().toISOString();
+      sbUpsert('lots',lot.id,lot);
+      updatedLots++;
+    });
+  } else {
+    // РЕЖИМ ПРОДАЖ: только продажи по существующим позициям, остаток мат. пересчёт
+    if(!gSales){alert('Загрузите файл продаж');return;}
+    var unmatchedNames={}; // наименования из продаж, которых нет ни в одном лоте
+    Object.keys(gSales.sales).forEach(function(k){unmatchedNames[k]=true;});
+    lots.forEach(function(l){
+      if(l.status==='closed')return;
+      var changed=false;
+      l.items.forEach(function(item){
+        var key=item.key||item.name;
+        var s=gSales.sales[key];
+        if(s){
+          var oprih=(item.qty||0)+(item.soldQty||0);
+          item.soldQty=s.soldQty;item.soldRev=s.soldRev;item.weeks=s.weeks;
+          item.qty=Math.max(0,oprih-s.soldQty);
+          changed=true;updatedItems++;
+          delete unmatchedNames[key];
+        }
+      });
+      if(changed){
+        calcCosts(l.items,l.cost,l.totalUnits);
+        enrichItems(l.items,l.date,l.secondSeason);
+        l.weeks=gSales.weeks;
+        l.updatedAt=new Date().toISOString();
+        sbUpsert('lots',l.id,l);
+        updatedLots++;
+      }
+    });
+    // Если в продажах есть наименования которых нет в лотах — предложить дозагрузить остатки/прайс
+    var unmatched=Object.keys(unmatchedNames);
+    if(unmatched.length>0){
+      save();
+      closeModal('modal-batchupd');
+      alert('✓ Обновлено лотов: '+updatedLots+', позиций: '+updatedItems+'\n\n⚠ Обнаружено '+unmatched.length+' новых наименований в продажах, которых нет в лотах. Чтобы их оприходовать — обнови с галочкой «Оприходованы новые позиции» и приложи остатки + прайс.');
+      renderAnalytics();
+      return;
+    }
+  }
+
+  save();
+  closeModal('modal-batchupd');
+  // Если есть новые группы — предложить создать новые лоты
+  if(newGroups.length>0){
+    var msg='✓ Обновлено лотов: '+updatedLots+', позиций: '+updatedItems+(addedItems>0?', добавлено новых позиций: '+addedItems:'');
+    msg+='\n\nНайдено '+newGroups.length+' новых групп, которых нет среди лотов:\n'+newGroups.slice(0,8).join(', ')+(newGroups.length>8?'...':'');
+    if(confirm(msg+'\n\nСоздать под них новые лоты?')){
+      // запустить пакетное создание только для новых групп
+      batchGroups=groups.filter(function(g){return newGroups.indexOf(g.group)>=0;});
+      batchMerges=batchGroups.map(function(g){return {name:g.group,groups:[g.group]};});
+      batchSel=new Set();
+      // продажи и цены для новых лотов — из текущей загрузки
+      draft.price=batchUpdData.price||{};draft.sales=gSales;
+      window._draftWb=window._buWb; // чтобы groupedSales взялся
+      document.getElementById('batch-step-groups').style.display='';
+      document.getElementById('batch-step-params').style.display='none';
+      renderBatchGroups();
+      document.getElementById('modal-batch').style.display='flex';
+      return;
+    }
+  } else {
+    alert('✓ Обновлено лотов: '+updatedLots+', позиций: '+updatedItems+(addedItems>0?', добавлено новых: '+addedItems:''));
+  }
+  renderAnalytics();
+}
+function openBatchReview(){
+  if(!window._draftWb||!window._draftWb.stock){alert('Нет файла остатков для группового разбора');return;}
+  batchGroups=parseGroupedStock(window._draftWb.stock);
+  if(!batchGroups.length){alert('Не удалось распознать группы. Проверьте структуру файла.');return;}
+  // По умолчанию каждая группа = отдельный лот
+  batchMerges=batchGroups.map(function(g){return {name:g.group,groups:[g.group]};});
+  batchSel=new Set();
+  closeModal('modal-create');
+  document.getElementById('batch-step-groups').style.display='';
+  document.getElementById('batch-step-params').style.display='none';
+  renderBatchGroups();
+  document.getElementById('modal-batch').style.display='flex';
+}
+function renderBatchGroups(){
+  var groupMap={};batchGroups.forEach(function(g){groupMap[g.group]=g;});
+  var rows='';
+  batchMerges.forEach(function(m,idx){
+    var totalItems=0,totalQty=0;
+    m.groups.forEach(function(gn){var g=groupMap[gn];if(g){totalItems+=g.items.length;totalQty+=g.total;}});
+    var merged=m.groups.length>1;
+    rows+='<tr>'+
+      '<td><input type="checkbox" class="batch-chk" data-idx="'+idx+'" '+(batchSel.has(idx)?'checked':'')+' onclick="batchChk('+idx+',this)"></td>'+
+      '<td style="font-weight:500">'+m.name+(merged?' <span style="font-size:9px;color:var(--accent)">('+m.groups.length+' групп)</span>':'')+'</td>'+
+      '<td class="mono">'+totalItems+'</td>'+
+      '<td class="mono">'+totalQty+'</td>'+
+      '<td>'+(merged?'<button class="btn btn-ghost btn-sm" style="font-size:9px" onclick="batchUnmerge('+idx+')">разъединить</button> ':'')+'<button class="btn btn-ghost btn-sm" style="font-size:9px;color:var(--red)" onclick="batchDeleteOne('+idx+')">удалить</button></td></tr>';
+  });
+  document.getElementById('batch-groups-body').innerHTML=rows;
+  document.getElementById('batch-count').textContent='Лотов: '+batchMerges.length+' (из '+batchGroups.length+' групп)';
+  document.getElementById('batch-sel-info').textContent=batchSel.size>0?('выбрано: '+batchSel.size):'';
+}
+function batchChk(idx,el){if(el.checked)batchSel.add(idx);else batchSel.delete(idx);document.getElementById('batch-sel-info').textContent=batchSel.size>0?('выбрано: '+batchSel.size):'';}
+function batchToggleAll(el){batchSel=new Set();if(el.checked)batchMerges.forEach(function(m,i){batchSel.add(i);});renderBatchGroups();}
+function batchMergeSelected(){
+  if(batchSel.size<2){alert('Отметьте 2+ лота для объединения');return;}
+  var idxs=Array.from(batchSel).sort(function(a,b){return a-b;});
+  var mergedGroups=[];var names=[];
+  idxs.forEach(function(i){mergedGroups=mergedGroups.concat(batchMerges[i].groups);names.push(batchMerges[i].name);});
+  var newMerge={name:names.join(' + '),groups:mergedGroups};
+  // удалить выбранные, добавить объединённый
+  batchMerges=batchMerges.filter(function(m,i){return idxs.indexOf(i)<0;});
+  batchMerges.push(newMerge);
+  batchSel=new Set();
+  renderBatchGroups();
+}
+function batchUnmerge(idx){
+  var m=batchMerges[idx];if(!m||m.groups.length<2)return;
+  batchMerges.splice(idx,1);
+  m.groups.forEach(function(gn){batchMerges.push({name:gn,groups:[gn]});});
+  batchSel=new Set();
+  renderBatchGroups();
+}
+function batchDeleteOne(idx){
+  var m=batchMerges[idx];if(!m)return;
+  if(!confirm('Удалить лот «'+m.name+'»? Он не будет создан.'))return;
+  batchMerges.splice(idx,1);
+  batchSel=new Set();
+  renderBatchGroups();
+}
+function batchDeleteSelected(){
+  if(batchSel.size===0){alert('Отметьте лоты для удаления');return;}
+  if(!confirm('Удалить отмеченные лоты ('+batchSel.size+')? Они не будут созданы.'))return;
+  var idxs=Array.from(batchSel).sort(function(a,b){return b-a;}); // с конца, чтобы индексы не сбились
+  idxs.forEach(function(i){batchMerges.splice(i,1);});
+  batchSel=new Set();
+  renderBatchGroups();
+}
+function batchToParams(){
+  var groupMap={};batchGroups.forEach(function(g){groupMap[g.group]=g;});
+  var today=new Date().toISOString().slice(0,10);
+  var forms='';
+  batchMerges.forEach(function(m,idx){
+    var totalQty=0,totalItems=0;
+    m.groups.forEach(function(gn){var g=groupMap[gn];if(g){totalQty+=g.total;totalItems+=g.items.length;}});
+    forms+='<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:10px">'+
+      '<div style="font-size:13px;font-weight:600;margin-bottom:8px">'+m.name+' <span style="font-size:10px;color:var(--text3)">('+totalItems+' наимен., '+totalQty+' шт)</span></div>'+
+      '<div class="grid2" style="margin-bottom:8px">'+
+        '<div><div class="lbl">Название лота</div><input class="inp inp-sm" id="bp-name-'+idx+'" value="'+m.name.replace(/"/g,'&quot;')+'"></div>'+
+        '<div><div class="lbl">Дата поступления</div><input class="inp inp-sm" type="date" id="bp-date-'+idx+'" value="'+today+'"></div>'+
+      '</div>'+
+      '<div class="grid2" style="margin-bottom:8px">'+
+        '<div><div class="lbl">Стоимость лота (₸) <span class="tag-req">обяз</span></div><input class="inp inp-sm" type="number" id="bp-cost-'+idx+'" placeholder="0"></div>'+
+        '<div><div class="lbl">Всего единиц</div><input class="inp inp-sm" type="number" id="bp-units-'+idx+'" placeholder="'+totalQty+'"></div>'+
+      '</div>'+
+      '<div class="grid2" style="margin-bottom:0">'+
+        '<div><div class="lbl">Цель прибыли, %</div><input class="inp inp-sm" type="number" id="bp-target-'+idx+'" value="'+(CFG.profitTargetPct||60)+'"></div>'+
+        '<div><div class="lbl">Продать до</div><input class="inp inp-sm" type="date" id="bp-sellby-'+idx+'"></div>'+
+      '</div>'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="bp-season-'+idx+'" style="width:14px;height:14px"><label for="bp-season-'+idx+'" style="font-size:10px;color:var(--text2)">Остатки прошлого сезона</label></div>'+
+    '</div>';
+  });
+  document.getElementById('batch-params-body').innerHTML=forms;
+  document.getElementById('batch-step-groups').style.display='none';
+  document.getElementById('batch-step-params').style.display='';
+}
+function batchBackToGroups(){
+  document.getElementById('batch-step-params').style.display='none';
+  document.getElementById('batch-step-groups').style.display='';
+}
+function batchSaveAll(){
+  var lotDefs=[];var missingCost=[];
+  batchMerges.forEach(function(m,idx){
+    var cost=parseFloat(document.getElementById('bp-cost-'+idx).value)||0;
+    if(cost<=0)missingCost.push(document.getElementById('bp-name-'+idx).value||m.name);
+    lotDefs.push({
+      name:document.getElementById('bp-name-'+idx).value||m.name,
+      groups:m.groups,
+      date:document.getElementById('bp-date-'+idx).value||new Date().toISOString().slice(0,10),
+      cost:cost,
+      totalUnits:parseInt(document.getElementById('bp-units-'+idx).value)||0,
+      profitTarget:parseFloat(document.getElementById('bp-target-'+idx).value),
+      sellBy:document.getElementById('bp-sellby-'+idx).value||'',
+      secondSeason:document.getElementById('bp-season-'+idx).checked
+    });
+  });
+  if(missingCost.length){
+    if(!confirm('У '+missingCost.length+' лотов не указана стоимость (себестоимость будет 0). Продолжить?\\n'+missingCost.slice(0,5).join(', ')))return;
+  }
+  // Для пакетного режима продажи парсим групповым методом (indent, листья) — иначе теряются позиции вроде by GRAY
+  var batchSales=draft.sales;
+  if(window._draftWb&&window._draftWb.sales){var gs=parseGroupedSales(window._draftWb.sales);if(gs)batchSales=gs;}
+  var newLots=buildLotsFromBatch(lotDefs,batchGroups,draft.price,batchSales);
+  newLots.forEach(function(l){lots.push(l);sbUpsert('lots',l.id,l);});
+  save();
+  closeModal('modal-batch');
+  window._draftWb=null;
+  alert('✓ Создано лотов: '+newLots.length);
+  renderAnalytics();
 }
 function cwNext2(){
   var name=document.getElementById('p-name').value.trim();
@@ -1445,7 +1995,8 @@ function buildPreview(items,cost,weeks,totalUnits){
   }).join('');
 }
 function saveLot(){
-  var lot={id:uid(),name:document.getElementById('p-name').value.trim(),date:document.getElementById('p-date').value,cost:parseFloat(document.getElementById('p-cost').value)||0,totalUnits:draft._totalUnits||0,profitTarget:draft._profitTarget,sellBy:draft._sellBy||'',secondSeason:draft._secondSeason||false,supplier:document.getElementById('p-supplier').value,comment:document.getElementById('p-comment').value,status:'active',items:draft._items,weeks:draft._weeks||[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+  var lotName=document.getElementById('p-name').value.trim();
+  var lot={id:uid(),name:lotName,date:document.getElementById('p-date').value,cost:parseFloat(document.getElementById('p-cost').value)||0,totalUnits:draft._totalUnits||0,profitTarget:draft._profitTarget,sellBy:draft._sellBy||'',secondSeason:draft._secondSeason||false,supplier:document.getElementById('p-supplier').value,comment:document.getElementById('p-comment').value,status:'active',sourceGroups:[lotName],items:draft._items,weeks:draft._weeks||[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
   lots.unshift(lot);save();closeModal('modal-create');showPage('analytics',document.getElementById('tab-analytics'));
 }
 
@@ -3177,7 +3728,7 @@ function hPromoResultsFile(e){var f=e.target.files[0];if(f)processPromoResults(f
 function processPromoResults(file){
   var reader=new FileReader();
   reader.onload=function(ev){
-    var wb=XLSX.read(ev.target.result,{type:'array',cellDates:true});
+    var wb=XLSX.read(ev.target.result,{type:'array',cellDates:true,bookFiles:true});
     var result=parseSales(wb);
     if(!result){alert('Не удалось распознать');return;}
     var promoId=document.getElementById('promoresults-id').value;
@@ -3318,7 +3869,7 @@ function buildAlerts(){
 
 function renderAnalytics(){
   var el=document.getElementById('analytics-content');
-  var headerBtn='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-size:14px;font-weight:600">Лоты и сводная аналитика</div><div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" onclick="forceSyncAll()"><i class="ti ti-cloud-upload"></i> Синхронизировать</button><button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i> Настройки</button><button class="btn btn-primary btn-sm" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button></div></div>';
+  var headerBtn='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-size:14px;font-weight:600">Лоты и сводная аналитика</div><div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" onclick="forceSyncAll()"><i class="ti ti-cloud-upload"></i> Синхронизировать</button><button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i> Настройки</button><button class="btn btn-ghost btn-sm" onclick="openBatchUpdate()"><i class="ti ti-refresh"></i> Обновить все</button><button class="btn btn-primary btn-sm" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button></div></div>';
   if(!lots.length){el.innerHTML=headerBtn+'<div class="empty-state"><div style="font-size:40px">📦</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">Нет лотов</div><div style="font-size:12px">Нажмите «Новый лот»</div></div>';return;}
   lots.forEach(function(l){enrichItems(l.items,l.date,l.secondSeason);});
   updateRecosBadge();var html=headerBtn+
