@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v64</title>
+<title>FBSM — Управление лотами v65</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -168,7 +168,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v64</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v65</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -3842,7 +3842,8 @@ function renderPromos(){
   var shownPromos=promos.filter(function(p){return !filterLotId||p.lotId===filterLotId;});
   if(!shownPromos.length){el.innerHTML='<div class="empty-state"><div style="font-size:40px">🏷</div><div>Нет акций'+(filterLotId?' по этому лоту':'')+'</div><div style="font-size:11px">Создайте акцию из карточки лота</div></div>';return;}
   var now=new Date();
-  var html='';
+  var html='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><div style="font-size:11px;color:var(--text2)">Акций: <b>'+shownPromos.length+'</b></div>'+
+    '<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="exportAllPromosToExcel()"><i class="ti ti-file-spreadsheet"></i> Все акции в Excel</button></div>';
   shownPromos.forEach(function(p){
     var l=getLot(p.lotId);
     var end=p.endDate?new Date(p.endDate):null;
@@ -3863,6 +3864,51 @@ function renderPromos(){
   el.innerHTML=html;
 }
 
+// Выгрузка применённых скидок/сливов (вкладка Акции) в Excel
+function exportDiscToExcel(mode){
+  var filterLotId=document.getElementById('promo-lot-filter')?document.getElementById('promo-lot-filter').value:'';
+  var rows=collectDiscPositions(filterLotId,mode);
+  if(!rows.length){alert('Список пуст');return;}
+  var isLiq=mode==='liq';
+  var aoa=[['Лот','Наименование','Остаток','Цена','Себестоимость','Скидка %','Цена со скидкой','Статус']];
+  rows.forEach(function(r){
+    var it=r.item;
+    aoa.push([
+      r.lot.name,it.name,Math.max(it.qty||0,0),it.price||0,Math.round(it.costPer||0),
+      it.discountPct||0,Math.round(it.discountPrice||0),
+      r.needDeeper?'пора углубить':(isLiq?'слив':'работает')
+    ]);
+  });
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:22},{wch:32},{wch:9},{wch:12},{wch:13},{wch:9},{wch:14},{wch:15}];
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,isLiq?'Сливы':'Постоянные скидки');
+  var label=isLiq?'FBSM_сливы':'FBSM_постоянные_скидки';
+  XLSX.writeFile(wb,label+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+// Выгрузка всех акций (список) в Excel
+function exportAllPromosToExcel(){
+  var filterLotId=document.getElementById('promo-lot-filter')?document.getElementById('promo-lot-filter').value:'';
+  var shown=promos.filter(function(p){return !filterLotId||p.lotId===filterLotId;});
+  if(!shown.length){alert('Нет акций');return;}
+  var aoa=[['Акция','Лот','Наименование','Остаток','Цена','Скидка %','Цена со скидкой','Подарок/условие','Период','Статус']];
+  shown.forEach(function(p){
+    var period=p.unlimited?'бессрочно':((p.startDate||'')+' → '+(p.endDate||''));
+    var statusTxt=p.status==='ended'?'завершена':p.status==='archived'?'архив':'активна';
+    (p.items||[]).forEach(function(pi){
+      var res=resolvePromoItem(pi);if(!res)return;
+      var it=res.item;var disc=pi.discPct||0;
+      aoa.push([p.name,res.lot.name,it.name,Math.max(it.qty||0,0),it.price||0,disc,
+        disc>0?Math.round((it.price||0)*(1-disc/100)):(it.price||0),pi.gift||p.gift||'',period,statusTxt]);
+    });
+  });
+  if(aoa.length<2){alert('В акциях нет позиций');return;}
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:20},{wch:20},{wch:30},{wch:9},{wch:11},{wch:9},{wch:14},{wch:24},{wch:22},{wch:11}];
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Акции');
+  XLSX.writeFile(wb,'FBSM_акции_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
 // Собрать позиции с постоянными скидками / сливами по всем (или одному) лотам
 function collectDiscPositions(filterLotId,mode){
   var rows=[];
@@ -3895,7 +3941,8 @@ function renderDiscSection(el,filterLotId){
   var rows=collectDiscPositions(filterLotId,'disc');
   if(!rows.length){el.innerHTML='<div class="empty-state"><div style="font-size:40px">🏷</div><div>Нет постоянных скидок'+(filterLotId?' по этому лоту':'')+'</div><div style="font-size:11px">Скидки ставятся из карточки лота по рекомендациям</div></div>';return;}
   var deepenN=rows.filter(function(r){return r.needDeeper;}).length;
-  var html='<div style="font-size:11px;color:var(--text2);margin-bottom:10px">Всего позиций со скидкой: <b>'+rows.length+'</b>'+(deepenN>0?' · <span style="color:var(--red)">📉 '+deepenN+' пора углубить</span>':'')+'</div>';
+  var html='<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="font-size:11px;color:var(--text2)">Всего позиций со скидкой: <b>'+rows.length+'</b>'+(deepenN>0?' · <span style="color:var(--red)">📉 '+deepenN+' пора углубить</span>':'')+'</div>'+
+    '<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="exportDiscToExcel(\'disc\')"><i class="ti ti-file-spreadsheet"></i> В Excel</button></div>';
   html+='<div style="overflow-x:auto"><table><thead><tr><th>Лот</th><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Скидка</th><th>Цена со скид.</th><th>Статус</th></tr></thead><tbody>';
   rows.forEach(function(r){
     var item=r.item;var rec=r.rec;
@@ -3919,7 +3966,8 @@ function renderDiscSection(el,filterLotId){
 function renderLiqSection(el,filterLotId){
   var rows=collectDiscPositions(filterLotId,'liq');
   if(!rows.length){el.innerHTML='<div class="empty-state"><div style="font-size:40px">🔥</div><div>Нет позиций в сливах'+(filterLotId?' по этому лоту':'')+'</div><div style="font-size:11px">Подтвердите слив кнопкой «Слить» в карточке лота или в рекомендациях</div></div>';return;}
-  var html='<div style="font-size:11px;color:var(--text2);margin-bottom:10px">В сливах: <b style="color:var(--red)">'+rows.length+'</b> поз. (подтверждённые)</div>';
+  var html='<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="font-size:11px;color:var(--text2)">В сливах: <b style="color:var(--red)">'+rows.length+'</b> поз. (подтверждённые)</div>'+
+    '<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="exportDiscToExcel(\'liq\')"><i class="ti ti-file-spreadsheet"></i> В Excel</button></div>';
   html+='<div style="overflow-x:auto"><table><thead><tr><th>Лот</th><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Себест.</th><th>Скидка</th><th>Цена</th><th></th></tr></thead><tbody>';
   rows.forEach(function(r){
     var item=r.item;var rec=r.rec;
