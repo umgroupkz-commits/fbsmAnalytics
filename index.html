@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v61</title>
+<title>FBSM — Управление лотами v63</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -168,7 +168,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v61</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v63</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -392,6 +392,21 @@ tr:hover td{background:#1a2030}
 </div></div>
 
 <!-- MODAL HISTORICAL SALES -->
+<div id="modal-group" class="modal-overlay" style="display:none"><div class="modal" style="max-width:440px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <div style="flex:1"><div class="modal-title">📁 Папка для лота</div><div style="font-size:11px;color:var(--text2)" id="group-lot-name"></div></div>
+    <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-group')"><i class="ti ti-x"></i></button>
+  </div>
+  <div id="group-existing" style="margin-bottom:14px"></div>
+  <div style="border-top:1px solid var(--border);padding-top:12px">
+    <div class="lbl" style="margin-bottom:5px">Или создать новую папку</div>
+    <div style="display:flex;gap:8px">
+      <input class="inp" id="group-new-name" type="text" placeholder="Название новой папки" style="flex:1" onkeydown="if(event.key==='Enter')saveGroupNew()">
+      <button class="btn btn-primary" onclick="saveGroupNew()">Создать</button>
+    </div>
+  </div>
+</div></div>
+
 <div id="modal-histsales" class="modal-overlay" style="display:none"><div class="modal" style="max-width:760px">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
     <div style="flex:1"><div class="modal-title">Продажи прошлого периода</div><div style="font-size:11px;color:var(--text2)">Внеси продажи которые были до начала учёта. Позиции которых уже нет в остатках — тоже учтутся в оприходовании и окупаемости.</div></div>
@@ -1143,7 +1158,7 @@ function buildItems(stockMap,priceMap,salesData,existingItems){
       soldRev:sal?mergedSoldRev:(ex?ex.soldRev||0:0),
       weeks:mergedWeeks,
       costPer:0,mkCalc:0,mgUnit:0,noPrice:price===0,
-      firstSeenDate:ex?ex.firstSeenDate:new Date().toISOString().slice(0,10),
+      firstSeenDate:ex?(ex.firstSeenDate||new Date().toISOString().slice(0,10)):new Date().toISOString().slice(0,10),
       priceUp:priceUp,priceUpDate:ex?ex.priceUpDate:'',
       discountPct:ex?ex.discountPct||0:0,
       discountPrice:ex?ex.discountPrice||0:0,
@@ -2501,64 +2516,53 @@ function buildAdvisor(l,m){
 
 // ===== LOTS LIST =====
 var _collapsedGroups={}; // состояние свёрнутости папок
-function renderLots(){
-  var flt=document.getElementById('filter-status').value;
-  var list=flt?lots.filter(function(l){return l.status===flt;}):lots;
-  document.getElementById('lots-count').textContent='Лотов: '+lots.length;
-  var el=document.getElementById('lots-list');
-  if(!lots.length){el.innerHTML='<div class="empty-state"><div style="font-size:40px;margin-bottom:10px">📦</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">Нет лотов</div><div style="font-size:12px">Нажмите «Новый лот»</div></div>';return;}
-  // Разбить на группы: {имя группы → [лоты]}, лоты без группы отдельно
-  var grouped={},ungrouped=[];
-  list.forEach(function(l){
-    if(l.group&&l.group.trim()){if(!grouped[l.group])grouped[l.group]=[];grouped[l.group].push(l);}
-    else ungrouped.push(l);
-  });
-  var html='';
-  // Сначала папки (группы)
-  Object.keys(grouped).sort().forEach(function(gname){
-    var gl=grouped[gname];
-    var collapsed=_collapsedGroups[gname];
-    // агрегаты по папке
-    var totCost=0,totRev=0,totNet=0;
-    gl.forEach(function(l){var m=metrics(l);totCost+=l.cost||0;totRev+=m.factRev||0;totNet+=m.netProfit||0;});
-    html+='<div style="background:var(--surface2);border:1px solid var(--border2);border-radius:10px;margin-bottom:10px;overflow:hidden">'+
-      '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer" onclick="toggleGroup(\''+gname.replace(/'/g,"\\'")+'\')">'+
-      '<span style="font-size:14px;transition:transform .15s;transform:rotate('+(collapsed?'0':'90')+'deg)">▶</span>'+
-      '<span style="font-size:14px">📁</span>'+
-      '<div style="flex:1"><div style="font-size:13px;font-weight:600">'+gname+' <span style="font-size:10px;color:var(--text3)">('+gl.length+' лот.)</span></div>'+
-      '<div style="font-size:10px;color:var(--text3)">Себест. '+fmt(totCost)+' ₸ · Выручка '+fmt(totRev)+' ₸ · Прибыль '+(totNet>=0?'+':'')+fmt(totNet)+' ₸</div></div>'+
-      '<button class="btn btn-ghost btn-sm" style="font-size:9px" onclick="event.stopPropagation();ungroupAll(\''+gname.replace(/'/g,"\\'")+'\')">разгруппировать</button>'+
-      '</div>';
-    if(!collapsed){
-      html+='<div style="padding:0 10px 10px">';
-      gl.forEach(function(l){html+=lotCardHtml(l);});
-      html+='</div>';
-    }
-    html+='</div>';
-  });
-  // Потом лоты без группы
-  ungrouped.forEach(function(l){html+=lotCardHtml(l);});
-  el.innerHTML=html;
-}
-function toggleGroup(gname){_collapsedGroups[gname]=!_collapsedGroups[gname];renderLots();}
+function toggleGroup(gname){_collapsedGroups[gname]=!_collapsedGroups[gname];renderAnalytics();}
 function ungroupAll(gname){
   if(!confirm('Убрать все лоты из папки «'+gname+'»? Сами лоты останутся.'))return;
   lots.forEach(function(l){if(l.group===gname){l.group='';sbUpsert('lots',l.id,l);}});
-  save();renderLots();
+  save();renderAnalytics();
 }
 // Назначить лот в папку (существующую или новую)
+var _groupLotId=null;
 function assignLotGroup(lotId){
   var l=getLot(lotId);if(!l)return;
+  _groupLotId=lotId;
+  document.getElementById('group-lot-name').textContent=l.name;
+  // Список существующих папок — кнопками
   var existing=Array.from(new Set(lots.map(function(x){return x.group;}).filter(function(g){return g&&g.trim();}))).sort();
-  var msg='Введите название папки для лота «'+l.name+'».';
-  if(existing.length)msg+='\n\nСуществующие папки: '+existing.join(', ');
-  msg+='\n\n(пусто = убрать из папки)';
-  var g=prompt(msg,l.group||'');
-  if(g===null)return; // отмена
-  l.group=g.trim();
+  var box=document.getElementById('group-existing');
+  var htmlE='';
+  if(existing.length){
+    htmlE+='<div class="lbl" style="margin-bottom:6px">Выбрать существующую папку</div>';
+    existing.forEach(function(g){
+      var isCur=l.group===g;
+      htmlE+='<button class="btn '+(isCur?'btn-primary':'btn-ghost')+' btn-sm" style="margin:0 6px 6px 0" onclick="setGroupFor(\''+g.replace(/'/g,"\\'")+'\')">📁 '+g+(isCur?' ✓':'')+'</button>';
+    });
+  } else {
+    htmlE+='<div style="font-size:11px;color:var(--text3)">Папок пока нет — создайте первую ниже.</div>';
+  }
+  // Кнопка "убрать из папки" если лот в папке
+  if(l.group){
+    htmlE+='<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="setGroupFor(\'\')">✕ Убрать из папки «'+l.group+'»</button></div>';
+  }
+  box.innerHTML=htmlE;
+  document.getElementById('group-new-name').value='';
+  closeModal('modal-detail');
+  document.getElementById('modal-group').style.display='flex';
+}
+// Назначить лот в выбранную папку (или убрать если пусто)
+function setGroupFor(gname){
+  var l=getLot(_groupLotId);if(!l)return;
+  l.group=(gname||'').trim();
   l.updatedAt=new Date().toISOString();
   sbUpsert('lots',l.id,l);save();
-  closeModal('modal-detail');renderAnalytics();
+  closeModal('modal-group');renderAnalytics();
+}
+// Создать новую папку из поля ввода
+function saveGroupNew(){
+  var name=document.getElementById('group-new-name').value.trim();
+  if(!name){alert('Введите название папки');return;}
+  setGroupFor(name);
 }
 // HTML одной карточки лота (вынесено для переиспользования в папках)
 function lotCardHtml(l){
@@ -4190,33 +4194,35 @@ function renderAnalytics(){
   lots.forEach(function(l){enrichItems(l.items,l.date,l.secondSeason,l.sellBy);});
   updateRecosBadge();var html=headerBtn+
     '<div class="section-title" style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--text2)">Лоты ('+lots.length+')</div>';
+  // Разбить на папки: {имя → [лоты]}, без папки — отдельно
+  var grouped={},ungrouped=[];
   lots.forEach(function(l){
-    var m=metrics(l);
-    var activePromoCount=promos.filter(function(p){return p.lotId===l.id&&p.status==='active';}).length;
-    var badge=(l.secondSeason?'<span class="badge" style="background:var(--bg-orange);color:var(--orange)">🔁 прошлый сезон</span> ':'')+(l.status==='closed'?'<span class="badge badge-closed">Закрыт</span>':m.soldPct>80?'<span class="badge" style="background:var(--bg-orange);color:var(--orange)">Распродажа</span>':m.soldQty>0?'<span class="badge badge-lot">Продаётся</span>':'<span class="badge badge-S">Новый</span>');
-    var upd=l.updatedAt?new Date(l.updatedAt).toLocaleDateString('ru-RU'):'—';
-    var nc=m.netProfit>=0?'var(--green)':'var(--red)';
-    html+='<div class="lot-card" onclick="openDetail(\''+l.id+'\')">'+
-      '<div style="display:flex;align-items:flex-start;gap:8px">'+
-      '<div style="flex:1"><div style="font-size:13px;font-weight:600;margin-bottom:2px">'+l.name+'</div>'+
-      '<div style="font-size:10px;color:var(--text3)">'+(l.supplier||'—')+' · '+(l.date||'—')+' · '+fmt(l.cost)+' ₸'+(l.totalUnits?' · '+fmt(l.totalUnits)+' шт лот':'')+' · обновлён '+upd+'</div></div>'+badge+'</div>'+
-      '<div class="lot-metrics">'+
-      '<div class="lot-metric"><div class="lot-metric-lbl">Поз. / штук</div><div class="lot-metric-val">'+l.items.length+' / '+m.totalQty+'</div></div>'+
-      '<div class="lot-metric"><div class="lot-metric-lbl">Продано</div><div class="lot-metric-val">'+m.soldQty+' <span style="font-size:9px;color:var(--text3)">'+pct(m.soldPct)+'</span></div></div>'+
-      '<div class="lot-metric"><div class="lot-metric-lbl">Остаток</div><div class="lot-metric-val">'+m.remainQty+' шт</div></div>'+
-      '<div class="lot-metric"><div class="lot-metric-lbl">Выручка</div><div class="lot-metric-val" style="color:var(--accent)">'+fmt(m.factRev)+' ₸</div></div>'+
-      '<div class="lot-metric"><div class="lot-metric-lbl">Окупаемость</div><div class="lot-metric-val" style="color:'+(m.recovery>=100?'var(--green)':m.recovery>50?'var(--yellow)':'var(--text)')+'">'+(l.cost>0?pct(m.recovery):'—')+'</div></div>'+
-      '<div class="lot-metric"><div class="lot-metric-lbl">Чистая прибыль</div><div class="lot-metric-val" style="color:'+nc+'">'+(m.netProfit>=0?'+':'')+fmt(m.netProfit)+' ₸</div></div>'+
-      '<div class="lot-metric"><div class="lot-metric-lbl">Наценка по ценам</div><div class="lot-metric-val">'+(l.cost>0?pct(m.markup):'—')+'</div><div style="font-size:8px;color:var(--text3)">без скидок</div></div>'+
-      (function(){
-        var buf=CFG.markupBuffer||15;var pm=m.projectedMarkup;var tgt=m.profitTarget;
-        var col=pm>=tgt+buf?'var(--green)':pm>=tgt?'var(--yellow)':'var(--red)';
-        return '<div class="lot-metric" style="border-color:'+col+'"><div class="lot-metric-lbl">Наценка со скидками</div><div class="lot-metric-val" style="color:'+col+'">'+(l.cost>0?pct(pm):'—')+'</div><div style="font-size:8px;color:var(--text3)">цель +'+tgt+'%</div></div>';
-      })()+
-      (m.staleItems>0?'<div class="lot-metric" style="border-color:var(--red)"><div class="lot-metric-lbl" style="color:var(--red)">Залежалых</div><div class="lot-metric-val" style="color:var(--red)">'+m.staleItems+'</div></div>':'')+
-      (activePromoCount>0?'<div class="lot-metric" style="border-color:var(--teal)"><div class="lot-metric-lbl" style="color:var(--teal)">Акций</div><div class="lot-metric-val" style="color:var(--teal)">'+activePromoCount+'</div></div>':'')+
-      '</div></div>';
+    if(l.group&&l.group.trim()){if(!grouped[l.group])grouped[l.group]=[];grouped[l.group].push(l);}
+    else ungrouped.push(l);
   });
+  // Сначала папки
+  Object.keys(grouped).sort().forEach(function(gname){
+    var gl=grouped[gname];
+    var collapsed=_collapsedGroups[gname];
+    var totCost=0,totRev=0,totNet=0;
+    gl.forEach(function(l){var mm=metrics(l);totCost+=l.cost||0;totRev+=mm.factRev||0;totNet+=mm.netProfit||0;});
+    html+='<div style="background:var(--surface2);border:1px solid var(--border2);border-radius:10px;margin-bottom:10px;overflow:hidden">'+
+      '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer" onclick="toggleGroup(\''+gname.replace(/'/g,"\\'")+'\')">'+
+      '<span style="font-size:14px;transition:transform .15s;transform:rotate('+(collapsed?'0':'90')+'deg)">▶</span>'+
+      '<span style="font-size:14px">📁</span>'+
+      '<div style="flex:1"><div style="font-size:13px;font-weight:600">'+gname+' <span style="font-size:10px;color:var(--text3)">('+gl.length+' лот.)</span></div>'+
+      '<div style="font-size:10px;color:var(--text3)">Себест. '+fmt(totCost)+' ₸ · Выручка '+fmt(totRev)+' ₸ · Прибыль '+(totNet>=0?'+':'')+fmt(totNet)+' ₸</div></div>'+
+      '<button class="btn btn-ghost btn-sm" style="font-size:9px" onclick="event.stopPropagation();ungroupAll(\''+gname.replace(/'/g,"\\'")+'\')">разгруппировать</button>'+
+      '</div>';
+    if(!collapsed){
+      html+='<div style="padding:0 10px 10px">';
+      gl.forEach(function(l){html+=lotCardHtml(l);});
+      html+='</div>';
+    }
+    html+='</div>';
+  });
+  // Потом лоты без папки
+  ungrouped.forEach(function(l){html+=lotCardHtml(l);});
   el.innerHTML=html;
 }
 function forceSyncAll(){
