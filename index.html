@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v63</title>
+<title>FBSM — Управление лотами v64</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -168,7 +168,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v63</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v64</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -3425,7 +3425,7 @@ function renderHelp(){
 
 // ===== РЕКОМЕНДАЦИИ (общий список по всем лотам) =====
 function collectAllRecos(filterLotId){
-  var deepen=[],liquidate=[],promo=[],perm=[];
+  var deepen=[],liquidate=[],promo=[],perm=[],priceUp=[];
   lots.forEach(function(l){
     if(l.status==='closed')return;
     if(filterLotId&&l.id!==filterLotId)return;
@@ -3434,6 +3434,8 @@ function collectAllRecos(filterLotId){
     var m=metrics(l);var lotRecovered=m.recovery>=100;
     l.items.forEach(function(item){
       if((item.qty||0)<=0)return; // распродано
+      // Повысить цену: дефицит (распродаётся быстрее дедлайна) и ярлык ещё не стоит
+      if(item.isDeficit&&!item.priceUp)priceUp.push({lot:l,item:item,rec:{disc:0}});
       if((item.activePromos||[]).length)return; // уже в акции
       if(item.isLiquidated)return; // уже подтверждён слив
       var rec=calcRecommendedDiscount(item,l,lotRecovered);
@@ -3449,12 +3451,43 @@ function collectAllRecos(filterLotId){
       else if(rec.disc>0&&!rec.skipA)perm.push(row);
     });
   });
-  return {deepen:deepen,liquidate:liquidate,promo:promo,perm:perm};
+  return {deepen:deepen,liquidate:liquidate,promo:promo,perm:perm,priceUp:priceUp};
 }
 
 function recosTotalCount(){
   var r=collectAllRecos('');
   return r.deepen.length+r.liquidate.length+r.promo.length+r.perm.length;
+}
+
+// Универсальная выгрузка списка рекомендаций в Excel.
+// rows — массив {lot,item,rec}; onlyKeys — Set ключей "lotId:itemId" (если задан, только отмеченные)
+function exportRecosToExcel(rows,sheetName,fileLabel,onlyKeys){
+  if(!rows||!rows.length){alert('Список пуст');return;}
+  var filtered=onlyKeys?rows.filter(function(row){return onlyKeys.has(row.lot.id+':'+row.item.id);}):rows;
+  if(!filtered.length){alert('Не отмечено ни одной позиции');return;}
+  // Заголовки и строки
+  var aoa=[['Лот','Наименование','Остаток','Текущая цена','Себестоимость','Продано','Выручка','Реком. скидка %','Цена со скидкой','Запас (мес)']];
+  filtered.forEach(function(row){
+    var it=row.item,rec=row.rec||{};
+    aoa.push([
+      row.lot.name,
+      it.name,
+      Math.max(it.qty||0,0),
+      it.price||0,
+      Math.round(it.costPer||0),
+      it.soldQty||0,
+      Math.round(it.soldRev||0),
+      rec.disc||0,
+      rec.discPrice?Math.round(rec.discPrice):'',
+      (it.coverMonths!==null&&it.coverMonths!==undefined)?Number(it.coverMonths.toFixed(1)):''
+    ]);
+  });
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:22},{wch:32},{wch:9},{wch:12},{wch:13},{wch:9},{wch:13},{wch:13},{wch:14},{wch:11}];
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,sheetName.slice(0,31));
+  var date=new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb,fileLabel+'_'+date+'.xlsx');
 }
 
 function updateRecosBadge(){
@@ -3479,7 +3512,7 @@ function renderRecos(){
   fillRecosLotFilter();
   var filterLotId=document.getElementById('recos-lot-filter').value;
   var r=collectAllRecos(filterLotId);
-  var total=r.deepen.length+r.liquidate.length+r.promo.length+r.perm.length;
+  var total=r.deepen.length+r.liquidate.length+r.promo.length+r.perm.length+(r.priceUp?r.priceUp.length:0);
   if(total===0){el.innerHTML='<div class="empty-state"><div style="font-size:40px">✅</div><div>Всё отработано — рекомендаций нет</div><div style="font-size:11px">Загрузите свежие продажи, чтобы обновить</div></div>';return;}
   var html='';
   // Сводка
@@ -3488,6 +3521,7 @@ function renderRecos(){
     (r.liquidate.length?'<div class="stat-card" style="border-color:var(--red)"><div class="stat-lbl" style="color:var(--red)">🔥 Слить</div><div class="stat-val" style="color:var(--red)">'+r.liquidate.length+'</div></div>':'')+
     (r.promo.length?'<div class="stat-card" style="border-color:var(--orange)"><div class="stat-lbl" style="color:var(--orange)">🏷 В акцию</div><div class="stat-val" style="color:var(--orange)">'+r.promo.length+'</div></div>':'')+
     (r.perm.length?'<div class="stat-card" style="border-color:var(--yellow)"><div class="stat-lbl" style="color:var(--yellow)">🏷 Пост. скидка</div><div class="stat-val" style="color:var(--yellow)">'+r.perm.length+'</div></div>':'')+
+    (r.priceUp&&r.priceUp.length?'<div class="stat-card" style="border-color:#5fd88a"><div class="stat-lbl" style="color:#5fd88a">💲 Повысить цену</div><div class="stat-val" style="color:#5fd88a">'+r.priceUp.length+'</div></div>':'')+
     '</div>';
 
   // 📉 Углубить
@@ -3496,18 +3530,20 @@ function renderRecos(){
       return '<button class="btn btn-danger btn-sm" onclick="recoApplyDeepen(\''+row.lot.id+'\',\''+row.item.id+'\')">−'+row.item.discountPct+'% → −'+row.rec.disc+'%</button>';
     },true);
   }
-  // 🔥 Слить (с галочками + массовое действие)
+  // 🔥 Слить (с галочками + массовое действие + экспорт)
   if(r.liquidate.length){
     html+=recoSectionChecks('🔥 Слить',r.liquidate,'var(--red)','Маленький остаток / мёртвый сток — закрыть позицию','liq',
       '🔥 Слить отмеченные','recoBulkLiquidate()',true,
-      function(row){return '<button class="btn btn-danger btn-sm" onclick="recoApplyLiquidate(\''+row.lot.id+'\',\''+row.item.id+'\')">Слить −'+row.rec.disc+'%</button>';});
+      function(row){return '<button class="btn btn-danger btn-sm" onclick="recoApplyLiquidate(\''+row.lot.id+'\',\''+row.item.id+'\')">Слить −'+row.rec.disc+'%</button>';},
+      'recoExportLiquidate()');
   }
-  // 🏷 Кандидаты в акцию (с галочками для смешанной акции)
+  // 🏷 Кандидаты в акцию (с галочками для смешанной акции + экспорт)
   if(r.promo.length){
     html+='<div style="background:var(--surface);border:1px solid var(--orange);border-radius:8px;padding:12px;margin-bottom:12px">'+
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap"><div style="font-size:12px;font-weight:600;color:var(--orange)">🏷 Кандидаты в акцию ('+r.promo.length+')</div>'+
-      '<button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="createMixedPromo()">🏷 В акцию из отмеченных (<span id="reco-promo-cnt">0</span>)</button></div>'+
-      '<div style="font-size:9px;color:var(--text3);margin-bottom:8px">Большие остатки. Отметь позиции (можно из разных лотов, Shift — выделить диапазон) → «В акцию из отмеченных» предложит новую или существующую. Или жми «в акцию» в строке.</div>'+
+      '<div style="margin-left:auto;display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="recoExportPromo()"><i class="ti ti-file-spreadsheet"></i> В Excel</button>'+
+      '<button class="btn btn-primary btn-sm" onclick="createMixedPromo()">🏷 В акцию из отмеченных (<span id="reco-promo-cnt">0</span>)</button></div></div>'+
+      '<div style="font-size:9px;color:var(--text3);margin-bottom:8px">Большие остатки. Отметь позиции (можно из разных лотов, Shift — выделить диапазон) → «В акцию из отмеченных» предложит новую или существующую. «В Excel» выгрузит отмеченные (или все).</div>'+
       '<div style="overflow-x:auto"><table><thead><tr><th><input type="checkbox" onclick="recoToggleAll(this)"></th><th>Лот</th><th>Наименование</th><th>Ост.</th><th>Цена</th><th>Реком.</th><th></th></tr></thead><tbody>';
     r.promo.forEach(function(row,ri){
       var key=row.lot.id+':'+row.item.id;
@@ -3521,15 +3557,24 @@ function renderRecos(){
     });
     html+='</tbody></table></div></div>';
   }
-  // 🏷 Постоянные скидки (с галочками + массовое действие)
+  // 🏷 Постоянные скидки (с галочками + массовое действие + экспорт)
   if(r.perm.length){
-    html+=recoSectionChecks('🏷 Постоянные скидки',r.perm,'var(--yellow)','Маленькие остатки — закрываем спокойно, без акций','perm',
+    html+=recoSectionChecks('🏷 Постоянные скидки',r.perm,'var(--yellow)','Небольшая скидка для ускорения к дедлайну','perm',
       '🏷 Применить отмеченным','recoBulkPerm()',false,
-      function(row){return '<button class="btn btn-primary btn-sm" onclick="recoApplyDeepen(\''+row.lot.id+'\',\''+row.item.id+'\')">Скидка −'+row.rec.disc+'%</button>';});
+      function(row){return '<button class="btn btn-primary btn-sm" onclick="recoApplyDeepen(\''+row.lot.id+'\',\''+row.item.id+'\')">Скидка −'+row.rec.disc+'%</button>';},
+      'recoExportPerm()');
+  }
+  // 💲 Повысить цену (дефицит — распродаётся быстрее дедлайна; чекбоксы + экспорт, без скидки)
+  if(r.priceUp&&r.priceUp.length){
+    html+=recoSectionChecks('💲 Повысить цену',r.priceUp,'#5fd88a','Дефицит: распродаётся быстрее дедлайна — можно поднять цену','price',
+      '💲 Ярлык «повышена» отмеченным','recoBulkPriceUp()',false,
+      function(row){return '<span style="font-size:9px;color:var(--text3)">запас '+(row.item.coverMonths!==null&&row.item.coverMonths!==undefined?row.item.coverMonths.toFixed(1)+' мес':'—')+'</span>';},
+      'recoExportPriceUp()');
   }
   el.innerHTML=html;
   updateRecoPromoCount();
   updateRecoSecCount('liq');
+  updateRecoSecCount('price');
   updateRecoSecCount('perm');
 }
 
@@ -3552,15 +3597,17 @@ function recoSection(title,rows,color,desc,actionFn,showCost){
 }
 
 // Секция рекомендаций с чекбоксами + массовым действием (для Слить и Постоянных)
-var recoLiqSel=new Set(),recoPermSel=new Set();
-var _recoSecLast={liq:null,perm:null};
-function recoSectionChecks(title,rows,color,desc,kind,bulkLabel,bulkAction,showCost,actionFn){
-  var sel=kind==='liq'?recoLiqSel:recoPermSel;
+var recoLiqSel=new Set(),recoPermSel=new Set(),recoPriceSel=new Set();
+var _recoSel={liq:recoLiqSel,perm:recoPermSel,price:recoPriceSel};
+var _recoSecLast={liq:null,perm:null,price:null};
+function recoSectionChecks(title,rows,color,desc,kind,bulkLabel,bulkAction,showCost,actionFn,exportAction){
+  var sel=_recoSel[kind];
   var cntId='reco-'+kind+'-cnt';
+  var exportBtn=exportAction?'<button class="btn btn-ghost btn-sm" onclick="'+exportAction+'"><i class="ti ti-file-spreadsheet"></i> В Excel</button>':'';
   var html='<div style="background:var(--surface);border:1px solid '+color+';border-radius:8px;padding:12px;margin-bottom:12px">'+
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap"><div style="font-size:12px;font-weight:600;color:'+color+'">'+title+' ('+rows.length+')</div>'+
-    '<button class="btn '+(kind==='liq'?'btn-danger':'btn-primary')+' btn-sm" style="margin-left:auto" onclick="'+bulkAction+'">'+bulkLabel+' (<span id="'+cntId+'">0</span>)</button></div>'+
-    '<div style="font-size:9px;color:var(--text3);margin-bottom:8px">'+desc+' · Shift — выделить диапазон</div>'+
+    '<div style="margin-left:auto;display:flex;gap:6px">'+exportBtn+'<button class="btn '+(kind==='liq'?'btn-danger':'btn-primary')+' btn-sm" onclick="'+bulkAction+'">'+bulkLabel+' (<span id="'+cntId+'">0</span>)</button></div></div>'+
+    '<div style="font-size:9px;color:var(--text3);margin-bottom:8px">'+desc+' · Shift — выделить диапазон · «В Excel» выгрузит отмеченные (или все)</div>'+
     '<div style="overflow-x:auto"><table><thead><tr><th><input type="checkbox" onclick="recoSecToggleAll(\''+kind+'\',this)"></th><th>Лот</th><th>Наименование</th><th>Ост.</th><th>Цена</th>'+(showCost?'<th>Себест.</th>':'')+'<th>Действие</th></tr></thead><tbody>';
   rows.forEach(function(row,ri){
     var key=row.lot.id+':'+row.item.id;
@@ -3577,7 +3624,7 @@ function recoSectionChecks(title,rows,color,desc,kind,bulkLabel,bulkAction,showC
   return html;
 }
 function recoSecChk(kind,idx,el,ev){
-  var sel=kind==='liq'?recoLiqSel:recoPermSel;
+  var sel=_recoSel[kind];
   var key=el.getAttribute('data-key');
   if(ev&&ev.shiftKey&&_recoSecLast[kind]!==null){
     var lo=Math.min(_recoSecLast[kind],idx),hi=Math.max(_recoSecLast[kind],idx);
@@ -3592,12 +3639,12 @@ function recoSecChk(kind,idx,el,ev){
   updateRecoSecCount(kind);
 }
 function recoSecToggleAll(kind,el){
-  var sel=kind==='liq'?recoLiqSel:recoPermSel;
+  var sel=_recoSel[kind];
   document.querySelectorAll('.reco-'+kind+'-chk').forEach(function(c){c.checked=el.checked;var k=c.getAttribute('data-key');if(el.checked)sel.add(k);else sel.delete(k);});
   updateRecoSecCount(kind);
 }
 function updateRecoSecCount(kind){
-  var sel=kind==='liq'?recoLiqSel:recoPermSel;
+  var sel=_recoSel[kind];
   var cnt=document.getElementById('reco-'+kind+'-cnt');
   if(cnt){var v=0;document.querySelectorAll('.reco-'+kind+'-chk').forEach(function(c){if(sel.has(c.getAttribute('data-key')))v++;});cnt.textContent=v;}
 }
@@ -3607,7 +3654,7 @@ function recoBulkLiquidate(){
   Array.from(recoLiqSel).forEach(function(key){
     var parts=key.split(':');recoApplyLiquidateSilent(parts[0],parts[1]);
   });
-  recoLiqSel=new Set();
+  recoLiqSel=new Set();_recoSel.liq=recoLiqSel;
   renderRecos();updateRecosBadge();
 }
 function recoBulkPerm(){
@@ -3616,8 +3663,37 @@ function recoBulkPerm(){
   Array.from(recoPermSel).forEach(function(key){
     var parts=key.split(':');applyDiscountSilent(parts[0],parts[1]);
   });
-  recoPermSel=new Set();
+  recoPermSel=new Set();_recoSel.perm=recoPermSel;
   renderRecos();updateRecosBadge();
+}
+// Выгрузка блоков в Excel (отмеченные, либо все если ничего не отмечено)
+function recoExportLiquidate(){
+  var r=collectAllRecos(document.getElementById('recos-lot-filter').value);
+  exportRecosToExcel(r.liquidate,'Слить','FBSM_слив',recoLiqSel.size?recoLiqSel:null);
+}
+function recoExportPerm(){
+  var r=collectAllRecos(document.getElementById('recos-lot-filter').value);
+  exportRecosToExcel(r.perm,'Постоянные скидки','FBSM_постоянные_скидки',recoPermSel.size?recoPermSel:null);
+}
+function recoExportPromo(){
+  var r=collectAllRecos(document.getElementById('recos-lot-filter').value);
+  exportRecosToExcel(r.promo,'В акцию','FBSM_кандидаты_в_акцию',recosSelected.size?recosSelected:null);
+}
+// Блок "Повысить цену": пометить ярлык у отмеченных
+function recoBulkPriceUp(){
+  if(recoPriceSel.size===0){alert('Отметьте позиции');return;}
+  if(!confirm('Повесить ярлык «Повышена цена» на отмеченные ('+recoPriceSel.size+')?'))return;
+  Array.from(recoPriceSel).forEach(function(key){
+    var parts=key.split(':');var l=getLot(parts[0]);if(!l)return;var it=getItem(l,parts[1]);if(!it)return;
+    it.priceUp=true;it.priceUpDate=new Date().toISOString().slice(0,10);
+  });
+  save();
+  recoPriceSel=new Set();_recoSel.price=recoPriceSel;
+  renderRecos();updateRecosBadge();
+}
+function recoExportPriceUp(){
+  var r=collectAllRecos(document.getElementById('recos-lot-filter').value);
+  exportRecosToExcel(r.priceUp,'Повысить цену','FBSM_повысить_цену',recoPriceSel.size?recoPriceSel:null);
 }
 // Тихий слив (без ре-рендера — для массового)
 function recoApplyLiquidateSilent(lotId,itemId){
@@ -3911,6 +3987,31 @@ function promoLots(p){
   if(p.lotId)ids[p.lotId]=1;
   return Object.keys(ids).map(function(id){return getLot(id);}).filter(Boolean);
 }
+// Выгрузка позиций акции в Excel (для передачи кому-то)
+function exportPromoToExcel(promoId){
+  var p=getPromo(promoId);if(!p){alert('Акция не найдена');return;}
+  var items=p.items||[];
+  if(!items.length){alert('В акции нет позиций');return;}
+  var aoa=[['Лот','Наименование','Остаток','Цена','Скидка %','Цена со скидкой','Подарок/условие','Продано (в акции)']];
+  items.forEach(function(pi){
+    var res=resolvePromoItem(pi);
+    if(!res)return;
+    var it=res.item;
+    var disc=pi.discPct||0;
+    var discPrice=disc>0?Math.round((it.price||0)*(1-disc/100)):(it.price||0);
+    var soldInPromo=(p.results&&p.results.byItem&&p.results.byItem[pi.itemId])?p.results.byItem[pi.itemId].qty:'';
+    aoa.push([
+      res.lot.name,it.name,Math.max(it.qty||0,0),it.price||0,disc,discPrice,pi.gift||p.gift||'',soldInPromo
+    ]);
+  });
+  if(aoa.length<2){alert('Позиции акции не найдены (возможно лоты удалены)');return;}
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:22},{wch:32},{wch:9},{wch:12},{wch:9},{wch:14},{wch:28},{wch:16}];
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Акция');
+  var safeName=(p.name||'акция').replace(/[^\wа-яА-Я0-9-]/g,'_').slice(0,20);
+  XLSX.writeFile(wb,'FBSM_акция_'+safeName+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
 function renderPromoDetail(){
   var p=getPromo(activePromoId);
   if(!p){document.getElementById('promodetail-body').innerHTML='<div style="padding:30px;text-align:center"><div style="font-size:13px;color:var(--text2);margin-bottom:12px">Акция не найдена</div><button class="btn btn-ghost" onclick="closeModal(\'modal-promodetail\')">Закрыть</button></div>';return;}
@@ -3988,6 +4089,7 @@ function renderPromoDetail(){
     (rows||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Нет позиций. Добавьте из карточки лота.</td></tr>')+
     '</tbody></table></div>'+
     '<div class="modal-footer">'+
+    '<button class="btn btn-ghost btn-sm" onclick="exportPromoToExcel(\''+p.id+'\')"><i class="ti ti-file-spreadsheet"></i> В Excel</button>'+
     (p.status==='active'?
       '<button class="btn btn-ghost btn-sm" onclick="editPromoMeta(\''+p.id+'\')"><i class="ti ti-edit"></i> Изменить даты</button>'+
       '<button class="btn btn-success btn-sm" onclick="openPromoResults(\''+p.id+'\')"><i class="ti ti-upload"></i> Загрузить результаты</button>'+
