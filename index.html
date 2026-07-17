@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v65</title>
+<title>FBSM — Управление лотами v66</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -123,8 +123,8 @@ tr:hover td{background:#1a2030}
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 
 .chip{display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono);margin:1px 2px 1px 0}
-.chip-disc{background:var(--bg-yellow);color:var(--yellow);border:1px solid var(--yellow)30}
-.chip-promo{background:#0d2d2a;color:var(--teal);border:1px solid var(--teal)30}
+.chip-disc{background:var(--bg-yellow);color:var(--yellow);border:1px solid rgba(241,196,15,.3)}
+.chip-promo{background:#0d2d2a;color:var(--teal);border:1px solid rgba(26,188,156,.3)}
 .chip-esc{background:var(--bg-red);color:var(--red)}
 .chip-had-promo{background:var(--surface3);color:var(--text3)}
 .chip-warn{background:var(--bg-orange);color:var(--orange)}
@@ -168,7 +168,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v65</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v66</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -542,7 +542,7 @@ tr:hover td{background:#1a2030}
         <label style="font-size:10px">Постоянная скидка до (прошлый сезон)</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-promoThresholdSecond" type="number" min="10" max="90" style="width:55px"> %</div>
         <div style="grid-column:1/-1;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text2)">🪜 Лестница уценки для непродающегося товара (аутлет)</div>
         <label style="font-size:10px">Недели без продаж (пороги)</label><input class="inp inp-sm" id="cfg-noSaleBreaks" type="text" placeholder="4, 7, 10, 12" style="width:120px">
-        <label style="font-size:10px">Скидки на порогах, %</label><input class="inp inp-sm" id="cfg-noSaleRates" type="text" placeholder="0, 15, 30, 50, 70" style="width:120px">
+        <div style="grid-column:1/-1;font-size:9px;color:var(--text3)">Скидки на порогах задаются в блоке «Скидки для товаров, которые вообще не продаются» ниже</div>
         <label style="font-size:10px">Акция «не помогла» если продано &lt;</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-promoFail" type="number" min="1" max="50" style="width:55px"> % остатка</div>
         <label style="font-size:10px">Слив: минимальная цена (% от себест.)</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-liqFloor" type="number" min="10" max="100" style="width:55px"> %</div>
         <label style="font-size:10px">Маленький остаток → пост. скидка (до, шт)</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-permDiscMax" type="number" min="1" max="200" style="width:55px"> шт</div>
@@ -574,15 +574,15 @@ tr:hover td{background:#1a2030}
     <div class="lbl" style="margin-bottom:4px">Скидки для товаров, которые вообще не продаются</div>
     <div style="font-size:10px;color:var(--text3);margin-bottom:10px">Если у позиции нет ни одной продажи — скидка назначается по тому, сколько недель она уже лежит на складе.</div>
     <div style="display:grid;grid-template-columns:1fr auto;gap:6px 12px;font-size:11px;align-items:center">
-      <div style="color:var(--text2)">Лежит <b>менее 4 недель</b> (новинка)</div>
+      <div style="color:var(--text2)" id="cfg-noSaleLbl0">Лежит <b>менее 4 недель</b> (новинка)</div>
       <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end"><span style="color:var(--text3);font-size:10px">скидка</span><input class="inp inp-sm" id="cfg-noSaleDisc0" type="number" min="0" max="95" style="width:50px;text-align:center"> %</div>
-      <div style="color:var(--text2)">Лежит <b>4–8 недель</b> без продаж</div>
+      <div style="color:var(--text2)" id="cfg-noSaleLbl1">Лежит <b>4–8 недель</b> без продаж</div>
       <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end"><span style="color:var(--text3);font-size:10px">скидка</span><input class="inp inp-sm" id="cfg-noSaleDisc1" type="number" min="0" max="95" style="width:50px;text-align:center"> %</div>
-      <div style="color:var(--text2)">Лежит <b>8–12 недель</b> без продаж</div>
+      <div style="color:var(--text2)" id="cfg-noSaleLbl2">Лежит <b>8–12 недель</b> без продаж</div>
       <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end"><span style="color:var(--text3);font-size:10px">скидка</span><input class="inp inp-sm" id="cfg-noSaleDisc2" type="number" min="0" max="95" style="width:50px;text-align:center"> %</div>
-      <div style="color:var(--text2)">Лежит <b>12–16 недель</b> без продаж</div>
+      <div style="color:var(--text2)" id="cfg-noSaleLbl3">Лежит <b>12–16 недель</b> без продаж</div>
       <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end"><span style="color:var(--text3);font-size:10px">скидка</span><input class="inp inp-sm" id="cfg-noSaleDisc3" type="number" min="0" max="95" style="width:50px;text-align:center"> %</div>
-      <div style="color:var(--text2)">Лежит <b>более 16 недель</b> без продаж</div>
+      <div style="color:var(--text2)" id="cfg-noSaleLbl4">Лежит <b>более 16 недель</b> без продаж</div>
       <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end"><span style="color:var(--text3);font-size:10px">скидка</span><input class="inp inp-sm" id="cfg-noSaleDisc4" type="number" min="0" max="95" style="width:50px;text-align:center"> %</div>
     </div>
     <div style="font-size:10px;color:var(--text3);margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">💡 Скидки до порога (обычный лот ~30%, прошлый сезон ~50%) ставятся как постоянные. Скидки выше порога система рекомендует оформлять как временные акции с дедлайном. Для остатков прошлого сезона порог выше — можно держать большую скидку на постоянку.</div>
@@ -670,7 +670,7 @@ function saveSettings(){
   var ptn=document.getElementById('cfg-promoThreshold');if(ptn)CFG.promoThreshold=parseInt(ptn.value)||30;
   var pts=document.getElementById('cfg-promoThresholdSecond');if(pts)CFG.promoThresholdSecondSeason=parseInt(pts.value)||50;
   var nsb=document.getElementById('cfg-noSaleBreaks');if(nsb)CFG.noSaleAgeBreaks=nsb.value.split(',').map(function(x){return parseInt(x.trim())||0;}).filter(function(x){return x>0;});
-  var nsr=document.getElementById('cfg-noSaleRates');if(nsr)CFG.noSaleDiscRates=nsr.value.split(',').map(function(x){return parseInt(x.trim())||0;});
+  // Ставки лестницы берутся из детального блока cfg-noSaleDisc0..4 (выше); дублирующего текстового поля больше нет
   var pft=document.getElementById('cfg-promoFail');if(pft)CFG.promoFailThreshold=parseInt(pft.value)||5;
   var lqf=document.getElementById('cfg-liqFloor');if(lqf)CFG.liqFloorPct=parseInt(lqf.value)||50;
   var pdq=document.getElementById('cfg-permDiscMax');if(pdq)CFG.permDiscMaxQty=parseInt(pdq.value)||20;
@@ -696,7 +696,14 @@ function fillSettingsForm(){
   var ptn=document.getElementById('cfg-promoThreshold');if(ptn)ptn.value=CFG.promoThreshold||30;
   var pts=document.getElementById('cfg-promoThresholdSecond');if(pts)pts.value=CFG.promoThresholdSecondSeason||50;
   var nsb=document.getElementById('cfg-noSaleBreaks');if(nsb)nsb.value=(CFG.noSaleAgeBreaks||[4,7,10,12]).join(', ');
-  var nsr=document.getElementById('cfg-noSaleRates');if(nsr)nsr.value=(CFG.noSaleDiscRates||[0,15,30,50,70]).join(', ');
+  // Подписи лестницы «не продаётся» — по фактическим порогам
+  (function(){
+    var b=CFG.noSaleAgeBreaks||[4,7,10,12];
+    var lbls=['Лежит <b>менее '+b[0]+' недель</b> (новинка)'];
+    for(var i=0;i<b.length-1;i++)lbls.push('Лежит <b>'+b[i]+'–'+b[i+1]+' недель</b> без продаж');
+    lbls.push('Лежит <b>более '+b[b.length-1]+' недель</b> без продаж');
+    for(var i=0;i<5;i++){var el=document.getElementById('cfg-noSaleLbl'+i);if(el&&lbls[i])el.innerHTML=lbls[i];}
+  })();
   var pft=document.getElementById('cfg-promoFail');if(pft)pft.value=CFG.promoFailThreshold||5;
   var lqf=document.getElementById('cfg-liqFloor');if(lqf)lqf.value=CFG.liqFloorPct||50;
   var pdq=document.getElementById('cfg-permDiscMax');if(pdq)pdq.value=CFG.permDiscMaxQty||20;
@@ -727,6 +734,8 @@ var DEFAULT_PROMO_DAYS=14;             // длительность акции п
 function getLot(id){return lots.find(function(x){return x.id===id;});}
 function getPromo(id){return promos.find(function(x){return x.id===id;});}
 function getItem(lot,id){return lot&&lot.items?lot.items.find(function(i){return i.id===id;}):undefined;}
+// Участвует ли лот в акции (учитывая смешанные акции с позициями из разных лотов)
+function promoHasLot(p,lotId){if(!lotId)return true;if(p.lotId===lotId)return true;return (p.items||[]).some(function(pi){return (pi.lotId||p.lotId)===lotId;});}
 let lastCheckedIdx=null;
 let prDraft=null;
 
@@ -754,6 +763,12 @@ function showPage(id,el){
 // Ключ позиции = "наименование · характеристика" (если характеристика есть).
 var SIZE_TOKENS=['XS','S','M','L','XL','XXL','XXXL','2XL','3XL','4XL','5XL','6XL','ONE','FREE','ONESIZE'];
 function cleanCell(v){return v==null?'':String(v).replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();}
+// \u041c\u0435\u0442\u043a\u0438 \u043d\u0435\u0434\u0435\u043b\u044c \u0438\u0437 1\u0421 \u2014 \u00ab\u0434\u0434.\u043c\u043c.\u0433\u0433\u0433\u0433\u00bb. \u0414\u043b\u044f \u0441\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u043a\u0438 \u0438 new Date() \u043d\u0443\u0436\u0435\u043d ISO \u00ab\u0433\u0433\u0433\u0433-\u043c\u043c-\u0434\u0434\u00bb.
+function weekKey(lbl){
+  lbl=(lbl||'').slice(0,10);
+  var m=lbl.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  return m?(m[3]+'-'+m[2]+'-'+m[1]):lbl;
+}
 function isCharRow(s){
   if(!s||s.indexOf(',')<0)return false;
   var sizePart=s.split(',')[0].trim().toUpperCase();
@@ -881,7 +896,27 @@ function parseSales(wb){
     var f=cleanCell(raw[dataStart]?raw[dataStart][0]:'');
     if(f==='Характеристика'||f==='Номенклатура'||f==='Количество товаров'||f===''||f.toLowerCase().includes('количеств')||f.toLowerCase().includes('сумма продаж')){dataStart++;}else break;
   }
-  var orgName=cleanCell(raw[dataStart]?raw[dataStart][0]:'');
+  // Строка организации (заголовок над товарами) есть не во всех выгрузках.
+  // Признак: её числа совпадают с «Итого» (дублирует общий итог) И ниже есть другие товарные строки.
+  // Иначе первая строка — обычный товар, пропускать её нельзя.
+  var orgName='';
+  (function(){
+    var cand=raw[dataStart];if(!cand)return;
+    var candName=cleanCell(cand[0]);if(!candName)return;
+    var totRow=null;
+    for(var j=dataStart+1;j<raw.length;j++){var rr=raw[j];if(rr&&cleanCell(rr[0])==='Итого'){totRow=rr;break;}}
+    if(!totRow)return;
+    var hasOtherNameRows=false;
+    for(var j=dataStart+1;j<raw.length;j++){
+      var rr=raw[j];if(!rr)continue;var nm=cleanCell(rr[0]);
+      if(!nm||nm==='Итого'||isWarehouseRow(nm)||isCharRow(nm))continue;
+      hasOtherNameRows=true;break;
+    }
+    if(!hasOtherNameRows)return;
+    var candQty=weeks.reduce(function(s,w){return s+(parseFloat(cand[w.qtyCol])||0);},0);
+    var totQty=weeks.reduce(function(s,w){return s+(parseFloat(totRow[w.qtyCol])||0);},0);
+    if(candQty>0&&Math.abs(candQty-totQty)<1)orgName=candName;
+  })();
   var startData=dataStart;
   // Группируем по наименованию (характеристики суммируем)
   var sales={};var currentName=null;
@@ -1108,10 +1143,17 @@ function mergeWeeks(oldWeeks,newWeeks){
   var byLabel={};
   // старые недели — базовые, имеют приоритет
   oldWeeks.forEach(function(w){var lbl=(w.label||'').slice(0,10);byLabel[lbl]={label:lbl,qty:w.qty||0,rev:w.rev||0,_hist:w._hist};});
-  // новые недели — добавляем только если такой даты ещё нет
-  newWeeks.forEach(function(w){var lbl=(w.label||'').slice(0,10);if(!(lbl in byLabel))byLabel[lbl]={label:lbl,qty:w.qty||0,rev:w.rev||0,_hist:w._hist};});
-  // отсортировать по дате
-  var merged=Object.values(byLabel).sort(function(a,b){return a.label<b.label?-1:a.label>b.label?1:0;});
+  // новые недели: новой даты не было → добавляем; дата была, но данные стали полнее
+  // (неделя была выгружена частично, до её конца) → берём более полные
+  newWeeks.forEach(function(w){
+    var lbl=(w.label||'').slice(0,10);
+    var nw={label:lbl,qty:w.qty||0,rev:w.rev||0,_hist:w._hist};
+    var old=byLabel[lbl];
+    if(!old)byLabel[lbl]=nw;
+    else if(nw.qty>old.qty||(nw.qty===old.qty&&nw.rev>old.rev))byLabel[lbl]=nw;
+  });
+  // отсортировать хронологически (метки «дд.мм.гггг» как строки сортируются неверно)
+  var merged=Object.values(byLabel).sort(function(a,b){var ka=weekKey(a.label),kb=weekKey(b.label);return ka<kb?-1:ka>kb?1:0;});
   return merged;
 }
 // Пересчитать soldQty/soldRev позиции из её недель (после слияния)
@@ -1125,7 +1167,7 @@ function mergeWeekLabels(oldLabels,newLabels){
   var set={};
   (oldLabels||[]).forEach(function(l){set[(l||'').slice(0,10)]=1;});
   (newLabels||[]).forEach(function(l){set[(l||'').slice(0,10)]=1;});
-  return Object.keys(set).filter(function(x){return x;}).sort();
+  return Object.keys(set).filter(function(x){return x;}).sort(function(a,b){var ka=weekKey(a),kb=weekKey(b);return ka<kb?-1:ka>kb?1:0;});
 }
 
 // ===== BUILD ITEMS =====
@@ -1154,6 +1196,9 @@ function buildItems(stockMap,priceMap,salesData,existingItems){
     }
     items.push({
       id:ex?ex.id:uid(),name:displayName,baseName:s.name,char:s.char||'',key:key,cat:'1С',qty:s.qty,price:price,
+      // Дата фактического появления позиции: у дозагруженных позже позиций возраст
+      // считается от неё, а не от даты лота (иначе новинка сразу «лежит N недель»)
+      receivedDate:ex?ex.receivedDate:(existingItems?new Date().toISOString().slice(0,10):undefined),
       soldQty:sal?mergedSoldQty:(ex?ex.soldQty||0:0),
       soldRev:sal?mergedSoldRev:(ex?ex.soldRev||0:0),
       weeks:mergedWeeks,
@@ -1173,7 +1218,8 @@ function buildItems(stockMap,priceMap,salesData,existingItems){
     existingItems.forEach(function(ex){
       var exKey=ex.key||ex.name;
       if(!stockMap[exKey]&&(ex.soldQty||0)>0){
-        items.push(Object.assign({},ex,{qty:ex.soldQty}));
+        // Позиции нет в остатках, но продажи были → распродана: остаток 0, историю сохраняем
+        items.push(Object.assign({},ex,{qty:0}));
       }
     });
   }
@@ -1249,8 +1295,9 @@ function enrichItems(items,lotDate,secondSeason,lotSellBy){
       i.effAvgWeek=i.avgPerWeek;
       i.effAvgMonth=i.avgPerMonth;
     }
-    // Возраст от даты лота (когда товар реально поступил), а не от даты загрузки в программу
-    var start=new Date(lotDate||i.firstSeenDate||now);
+    // Возраст от даты лота (когда товар реально поступил), а не от даты загрузки в программу.
+    // Для позиций, дозагруженных в лот позже, — от их receivedDate.
+    var start=new Date(i.receivedDate||lotDate||i.firstSeenDate||now);
     i.daysOnShelf=Math.max(0,Math.floor((now-start)/MS_PER_DAY));
     i.weeksOnShelf=Math.round(i.daysOnShelf/7);
     var remain=Math.max(i.qty||0,0);
@@ -1362,12 +1409,13 @@ function calcRecommendedDiscount(item,lot,lotRecovered){
     var rates=CFG.noSaleDiscRates||[0,15,30,50,70];
     var idx=0;for(var i=0;i<breaks.length;i++){if(weeks>=breaks[i])idx=i+1;}
     recDisc=rates[Math.min(idx,rates.length-1)]||0;
-    // Память об акциях: была ли акция и помогла ли
+    // Память об акциях: была ли акция и помогла ли.
+    // Судим ТОЛЬКО по акциям с загруженными результатами: «нет данных» ≠ «продано 0».
     var hadPromo=(item.promoHistory||[]).length>0;
+    var histWithData=(item.promoHistory||[]).filter(function(ph){return ph.soldDuring!==undefined&&ph.soldDuring!==null;});
     var promoFailed=false;
-    if(hadPromo){
-      // Акция была. Помогла ли? Смотрим продажи во время акций
-      var soldDuringPromos=(item.promoHistory||[]).reduce(function(s,ph){return s+(ph.soldDuring||0);},0);
+    if(histWithData.length){
+      var soldDuringPromos=histWithData.reduce(function(s,ph){return s+(ph.soldDuring||0);},0);
       var promoFailThr=CFG.promoFailThreshold||5; // % остатка
       promoFailed=soldDuringPromos<=Math.max(1,remain*promoFailThr/100);
     }
@@ -1381,11 +1429,12 @@ function calcRecommendedDiscount(item,lot,lotRecovered){
           recDisc=Math.min(rates[Math.min(idx+1,rates.length-1)]||recDisc,90); // на ступень глубже
           reason+=' · акция не помогла → постоянная скидка глубже';
           isPromoCandidate=false;
-        } else if(hadPromo){
+        } else if(hadPromo&&histWithData.length){
           reason+=' · акция дала эффект, держим скидку';
           isPromoCandidate=false;
         } else {
-          // Акций не было — большую скидку можно через акцию (срочность)
+          // Акций не было (или результаты не загружены) — большую скидку можно через акцию
+          if(hadPromo)reason+=' · была акция, результаты не загружены';
           if(recDisc>=promoThr&&remain>(CFG.permDiscMaxQty||20))isPromoCandidate=true;
         }
       }
@@ -1429,7 +1478,7 @@ function calcRecommendedDiscount(item,lot,lotRecovered){
     // Есть ли недели с продажами ПОСЛЕ даты установки скидки
     var soldAfterSet=0,weeksAfterSet=0;
     (item.weeks||[]).forEach(function(w){
-      if(w.label){var wd=new Date(w.label);if(wd>=setDate){weeksAfterSet++;soldAfterSet+=(w.qty||0);}}
+      if(w.label){var wd=new Date(weekKey(w.label));if(!isNaN(wd.getTime())&&wd>=setDate){weeksAfterSet++;soldAfterSet+=(w.qty||0);}}
     });
     // Если после установки скидки ещё не было новых недель данных — ждём результат
     if(weeksAfterSet===0)inEvalPeriod=true;
@@ -1676,10 +1725,14 @@ async function initFromSupabase(){
 function showSyncStatus(msg){var el=document.getElementById('sync-status');if(el)el.textContent=msg;}
 
 // Check expired promos and notify
+// Акция истекла, если прошёл ВЕСЬ день окончания (endDate включительно)
+function promoExpired(p,now){
+  return p.status==='active'&&!p.unlimited&&!!p.endDate&&(now-new Date(p.endDate))>=MS_PER_DAY;
+}
 function checkPromoExpiry(){
   var now=new Date();var expired=[];
   promos.forEach(function(p){
-    if(p.status==='active'&&!p.unlimited&&p.endDate&&new Date(p.endDate)<now){
+    if(promoExpired(p,now)){
       expired.push(p.name);
     }
   });
@@ -1876,6 +1929,7 @@ function applyBatchUpdate(){
         } else {
           // новая позиция в существующем лоте
           var newItem=buildItems({n:{name:gi.name,char:'',key:gi.name,qty:gi.qty}},batchUpdData.price||{},sal?{sales:{},weeks:gSales.weeks}:null,null)[0];
+          newItem.receivedDate=new Date().toISOString().slice(0,10); // дозагружена позже — возраст от сегодня
           if(sal){newItem.soldQty=sal.soldQty;newItem.soldRev=sal.soldRev;newItem.weeks=sal.weeks;}
           lot.items.push(newItem);
           addedItems++;
@@ -2176,8 +2230,10 @@ function parseHistPaste(){
   var lines=raw.split(/\r?\n/).filter(function(s){return s.trim();});
   var matched=0,created=0;
   lines.forEach(function(line){
-    // разделители: таб или несколько пробелов или ;
-    var parts=line.split(/\t|;|\s{2,}/).map(function(p){return p.trim();}).filter(function(p){return p!=='';});
+    // разделители: сначала таб/«;» (Excel вставляет табы; имена с двойными пробелами не рвём),
+    // и только если так не разобралось — несколько пробелов подряд
+    var parts=line.split(/\t|;/).map(function(p){return p.trim();}).filter(function(p){return p!=='';});
+    if(parts.length<3)parts=line.split(/\t|;|\s{2,}/).map(function(p){return p.trim();}).filter(function(p){return p!=='';});
     if(parts.length<2)return;
     // последние два числа = штук и сумма; остальное = наименование
     var rev=parseFloat((parts[parts.length-1]||'').replace(/\s/g,'').replace(',','.'))||0;
@@ -2502,7 +2558,7 @@ function buildAdvisor(l,m){
     if(forecastMonths!==null){
       if(forecastMonths>monthsLeft){
         adv+='Остаток '+m.remainQty+' шт продастся за <span style="color:var(--red)">'+fmtD(forecastMonths)+' мес</span> — дольше остатка до дедлайна ('+fmtD(monthsLeft)+' мес). ';
-        adv+='<b>Нужны скидки и акции</b> чтобы ускорить. Проверьте вкладку «Скидки/Акции» — там '+l.items.filter(function(i){i._abcd=getABCDMap(l.items)[i.id];var rec=calcRecommendedDiscount(i,l,false);return rec.disc>0;}).length+' позиций требуют внимания.';
+        adv+='<b>Нужны скидки и акции</b> чтобы ускорить. Проверьте вкладку «Скидки/Акции» — там '+(function(){var am=getABCDMap(l.items);return l.items.filter(function(i){i._abcd=am[i.id];var rec=calcRecommendedDiscount(i,l,false);return rec.disc>0;}).length;})()+' позиций требуют внимания.';
       } else {
         adv+='Остаток продастся за '+fmtD(forecastMonths)+' мес — укладываемся в срок ('+fmtD(monthsLeft)+' мес). Идём по графику.';
       }
@@ -2568,7 +2624,7 @@ function saveGroupNew(){
 function lotCardHtml(l){
   enrichItems(l.items,l.date,l.secondSeason,l.sellBy);
   var m=metrics(l);
-  var activePromoCount=promos.filter(function(p){return p.lotId===l.id&&p.status==='active';}).length;
+  var activePromoCount=promos.filter(function(p){return promoHasLot(p,l.id)&&p.status==='active';}).length;
   var badge=(l.secondSeason?'<span class="badge" style="background:var(--bg-orange);color:var(--orange)">🔁 прошлый сезон</span> ':'')+(l.status==='closed'?'<span class="badge badge-closed">Закрыт</span>':m.soldPct>80?'<span class="badge" style="background:var(--bg-orange);color:var(--orange)">Распродажа</span>':m.soldQty>0?'<span class="badge badge-lot">Продаётся</span>':'<span class="badge badge-S">Новый</span>');
   var upd=l.updatedAt?new Date(l.updatedAt).toLocaleDateString('ru-RU'):'—';
   var netColor=m.netProfit>=0?'var(--green)':'var(--red)';
@@ -3839,7 +3895,7 @@ function renderPromos(){
   if(activePromoTab==='disc'){renderDiscSection(el,filterLotId);return;}
   if(activePromoTab==='liq'){renderLiqSection(el,filterLotId);return;}
   // === Временные акции ===
-  var shownPromos=promos.filter(function(p){return !filterLotId||p.lotId===filterLotId;});
+  var shownPromos=promos.filter(function(p){return promoHasLot(p,filterLotId);});
   if(!shownPromos.length){el.innerHTML='<div class="empty-state"><div style="font-size:40px">🏷</div><div>Нет акций'+(filterLotId?' по этому лоту':'')+'</div><div style="font-size:11px">Создайте акцию из карточки лота</div></div>';return;}
   var now=new Date();
   var html='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><div style="font-size:11px;color:var(--text2)">Акций: <b>'+shownPromos.length+'</b></div>'+
@@ -3848,7 +3904,7 @@ function renderPromos(){
     var l=getLot(p.lotId);
     var end=p.endDate?new Date(p.endDate):null;
     var daysLeft=end&&!p.unlimited?Math.round((end-now)/MS_PER_DAY):null;
-    var isExpired=end&&!p.unlimited&&end<now&&p.status==='active';
+    var isExpired=promoExpired(p,now);
     var statusBadge=p.status==='ended'?'<span class="badge promo-status-ended">Завершена</span>':p.status==='archived'?'<span class="badge promo-status-archived">Архив</span>':isExpired?'<span class="badge" style="background:var(--bg-red);color:var(--red)">⏰ Истекла</span>':'<span class="badge promo-status-active">Активна</span>';
     html+='<div class="promo-tab-card" onclick="openPromoDetail(\''+p.id+'\')" style="cursor:pointer">'+
       '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">'+
@@ -3889,7 +3945,7 @@ function exportDiscToExcel(mode){
 // Выгрузка всех акций (список) в Excel
 function exportAllPromosToExcel(){
   var filterLotId=document.getElementById('promo-lot-filter')?document.getElementById('promo-lot-filter').value:'';
-  var shown=promos.filter(function(p){return !filterLotId||p.lotId===filterLotId;});
+  var shown=promos.filter(function(p){return promoHasLot(p,filterLotId);});
   if(!shown.length){alert('Нет акций');return;}
   var aoa=[['Акция','Лот','Наименование','Остаток','Цена','Скидка %','Цена со скидкой','Подарок/условие','Период','Статус']];
   shown.forEach(function(p){
@@ -4071,7 +4127,7 @@ function renderPromoDetail(){
   involvedLots.forEach(function(ll){enrichItems(ll.items,ll.date,ll.secondSeason,ll.sellBy);});
   var now=new Date();
   var end=p.endDate?new Date(p.endDate):null;
-  var isExpired=end&&!p.unlimited&&end<now&&p.status==='active';
+  var isExpired=promoExpired(p,now);
   var daysLeft=end&&!p.unlimited?Math.round((end-now)/MS_PER_DAY):null;
 
   // Forecast
