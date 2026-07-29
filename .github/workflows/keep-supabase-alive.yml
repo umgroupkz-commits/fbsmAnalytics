@@ -1,0 +1,19 @@
+# Пинг базы Supabase дважды в неделю, чтобы бесплатный проект
+# не засыпал после 7 дней без обращений (авто-пауза free-тарифа).
+# Ключ ниже — публичный (publishable), он и так есть в коде страницы.
+name: Keep Supabase alive
+on:
+  schedule:
+    - cron: '0 6 * * 1,4'   # понедельник и четверг, 06:00 UTC
+  workflow_dispatch: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST
+        run: |
+          curl -s --max-time 30 \
+            -H "apikey: sb_publishable_nfSHxeshvdTDEwkn82AGuQ_xrZiX4-s" \
+            -H "Authorization: Bearer sb_publishable_nfSHxeshvdTDEwkn82AGuQ_xrZiX4-s" \
+            "https://gginvthrgscpnskftfqk.supabase.co/rest/v1/lots?select=id&limit=1" \
+            && echo "OK" || echo "Supabase не ответил (возможно, на паузе) — это не ошибка воркфлоу"
