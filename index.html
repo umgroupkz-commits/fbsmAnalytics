@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v69</title>
+<title>FBSM — Управление лотами v70</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -41,9 +41,6 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .badge-D{background:var(--bg-red);color:var(--red);border:1px solid #5a2020}
 .badge-S{background:var(--bg-green);color:var(--green)}
 .badge-U{background:var(--bg-yellow);color:var(--yellow)}
-.badge-X{background:var(--bg-green);color:var(--green)}
-.badge-Y{background:var(--bg-yellow);color:var(--yellow)}
-.badge-Z{background:var(--bg-red);color:var(--red)}
 .badge-lot{background:#1a2d50;color:var(--accent)}
 .badge-closed{background:var(--surface3);color:var(--text3)}
 table{width:100%;border-collapse:collapse}
@@ -90,11 +87,6 @@ tr:hover td{background:#1a2030}
 .fchip-B{background:var(--bg-yellow);color:var(--yellow);border-color:#5a4a10}
 .fchip-C{background:#2d1a10;color:var(--orange);border-color:#5a3010}
 .fchip-D{background:var(--bg-red);color:var(--red);border-color:#5a2020}
-.fchip-S{background:var(--bg-green);color:var(--green);border-color:#1a5a30}
-.fchip-U{background:var(--bg-yellow);color:var(--yellow);border-color:#5a4a10}
-.fchip-X{background:var(--bg-green);color:var(--green);border-color:#1a5a30}
-.fchip-Y{background:var(--bg-yellow);color:var(--yellow);border-color:#5a4a10}
-.fchip-Z{background:var(--bg-red);color:var(--red);border-color:#5a2020}
 .fchip-ok{background:var(--bg-green);color:var(--green);border-color:#1a5a30}
 .fchip-warn{background:var(--bg-yellow);color:var(--yellow);border-color:#5a4a10}
 .fchip-crit{background:var(--bg-red);color:var(--red);border-color:#5a2020}
@@ -120,7 +112,6 @@ tr:hover td{background:#1a2030}
 .cover-ok{color:var(--green)}.cover-w{color:var(--yellow)}.cover-r{color:var(--orange)}.cover-c{color:var(--red)}
 .age-ok{color:var(--green)}.age-w{color:var(--yellow)}.age-r{color:var(--orange)}.age-c{color:var(--red)}
 .num-zero{color:var(--text3)}
-.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 
 .chip{display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono);margin:1px 2px 1px 0}
 .chip-disc{background:var(--bg-yellow);color:var(--yellow);border:1px solid rgba(241,196,15,.3)}
@@ -129,9 +120,6 @@ tr:hover td{background:#1a2030}
 .chip-had-promo{background:var(--surface3);color:var(--text3)}
 .chip-warn{background:var(--bg-orange);color:var(--orange)}
 .chip-below{background:var(--bg-red);color:var(--red)}
-.fchip-ok{background:var(--bg-green);color:var(--green);border-color:#1a5a30}
-.fchip-warn{background:var(--bg-yellow);color:var(--yellow);border-color:#5a4a10}
-.fchip-crit{background:var(--bg-red);color:var(--red);border-color:#5a2020}
 </style>
 <style>
 .modal-full{max-width:96vw !important;width:96vw !important}
@@ -151,9 +139,6 @@ tr:hover td{background:#1a2030}
 .promo-status-ended{background:var(--bg-yellow);color:var(--yellow)}
 .promo-status-archived{background:var(--surface3);color:var(--text3)}
 .label-popup{position:fixed;z-index:300;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:14px;max-width:340px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
-.mini-chart{display:flex;align-items:flex-end;gap:3px;height:120px;padding:10px 0}
-.mini-bar{flex:1;background:var(--accent);border-radius:3px 3px 0 0;min-height:2px;position:relative;transition:all .2s}
-.mini-bar:hover{background:var(--accent2)}
 .gift-input{background:#0d2d2a;border:1px solid var(--teal);color:var(--teal)}
 </style>
 
@@ -170,7 +155,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v69</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v70</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -803,7 +788,6 @@ let activePromoId=null;
 let detailSort={col:null,dir:-1};
 let detailFilters={abcd:new Set(),age:new Set()};
 let detailMode='abcd_rev';
-let showABCDXYZ=false;
 let activeDetailTab='dtab-table';
 let selectedItems=new Set();
 // Константы времени (миллисекунды)
@@ -811,6 +795,18 @@ var MS_PER_DAY=86400000;               // сутки в мс
 var MS_PER_WEEK=7*MS_PER_DAY;          // неделя в мс
 var MS_PER_MONTH=30*MS_PER_DAY;        // «месяц» = 30 дней в мс (для оценки темпов)
 var DEFAULT_PROMO_DAYS=14;             // длительность акции по умолчанию
+// ===== КОНСТАНТЫ ДВИЖКА СКИДОК =====
+// Вынесены из формул, чтобы их можно было осознанно менять, а не искать по коду.
+var LIQ_STEP_MID=0.7;        // средняя ступень слива: 70% себестоимости (между «по себесу» и полом)
+var PROMO_BOOST_K=2;         // формула ускорения от скидки: темп × (1 + скидка% × 2). Скидка 30% ≈ ×1.6
+var PROMO_BOOST_MAX=20;      // выбросы выше ×20 в статистику акций не берём (разовые всплески)
+var PROMO_LEARN_MIN=3;       // минимум завершённых акций, чтобы считать по факту, а не по формуле
+var PROMO_LEARN_SIMILAR=15;  // «похожая скидка» — в пределах ±15 пунктов
+var PROMO_LEARN_MIN_SIMILAR=2; // сколько похожих акций достаточно, чтобы считать только по ним
+var PROMO_ASSUMED_DAYS=30;   // срок бессрочной акции при оценке эффекта
+var MAX_DISCOUNT_PCT=90;     // потолок рекомендуемой скидки
+var DISC_MIN_DAYS=3;         // минимальный разумный срок акции
+var FACT_DISC_MIN_PCT=2;     // считаем, что продано со скидкой, если факт.цена ниже прайса на 2%+
 // Хелперы поиска по id (единая точка вместо повторяющихся .find)
 function getLot(id){return lots.find(function(x){return x.id===id;});}
 function getPromo(id){return promos.find(function(x){return x.id===id;});}
@@ -1347,7 +1343,7 @@ function calcCosts(items,lotCost,totalUnits){
     // Фактическая средняя цена продажи (со скидкой) и % фактической скидки vs прайс
     i.factAvgPrice=(i.soldQty>0)?(i.soldRev/i.soldQty):0;
     i.factDiscPct=(i.price>0&&i.factAvgPrice>0)?Math.max(0,Math.round((1-i.factAvgPrice/i.price)*100)):0;
-    i.soldWithDiscount=i.factDiscPct>=2; // продано со скидкой если факт.цена ниже прайса на 2%+
+    i.soldWithDiscount=i.factDiscPct>=FACT_DISC_MIN_PCT; // продано со скидкой если факт.цена ниже прайса на 2%+
   });
 }
 
@@ -1427,7 +1423,7 @@ function getLearnedBoost(discPct){
   var samples=[];
   promos.forEach(function(p){
     if(!p.results||!p.results.byItem)return;
-    var days=p.unlimited?30:(p.endDate&&p.startDate?Math.max(1,(new Date(p.endDate)-new Date(p.startDate))/MS_PER_DAY):14);
+    var days=p.unlimited?PROMO_ASSUMED_DAYS:(p.endDate&&p.startDate?Math.max(1,(new Date(p.endDate)-new Date(p.startDate))/MS_PER_DAY):14);
     var weeks=days/7;
     p.items.forEach(function(pi){
       var r=p.results.byItem[pi.itemId];
@@ -1440,13 +1436,13 @@ function getLearnedBoost(discPct){
       if(normalWeekly<=0)return;
       var promoWeekly=r.qty/weeks;
       var actualBoost=promoWeekly/normalWeekly;
-      if(actualBoost>0&&actualBoost<20){samples.push({disc:pi.discPct||p.discPct||0,boost:actualBoost});}
+      if(actualBoost>0&&actualBoost<PROMO_BOOST_MAX){samples.push({disc:pi.discPct||p.discPct||0,boost:actualBoost});}
     });
   });
-  if(samples.length<3)return null; // мало данных — используем формулу
+  if(samples.length<PROMO_LEARN_MIN)return null; // мало данных — используем формулу
   // Берём акции с похожей скидкой (±15%)
-  var similar=samples.filter(function(s){return Math.abs(s.disc-discPct)<=15;});
-  var pool=similar.length>=2?similar:samples;
+  var similar=samples.filter(function(s){return Math.abs(s.disc-discPct)<=PROMO_LEARN_SIMILAR;});
+  var pool=similar.length>=PROMO_LEARN_MIN_SIMILAR?similar:samples;
   var avg=pool.reduce(function(s,x){return s+x.boost;},0)/pool.length;
   return{boost:avg,n:pool.length};
 }
@@ -1457,7 +1453,7 @@ function estimatePromoPeriod(item,discPct){
   var avgWeek=(item.avgPerMonth||0)/4;
   // Скидка ускоряет продажи. Если есть история акций — берём фактический коэффициент
   var learned=getLearnedBoost(discPct);
-  var boost=learned?learned.boost:(1+(discPct/100)*2); // факт или формула
+  var boost=learned?learned.boost:(1+(discPct/100)*PROMO_BOOST_K); // факт или формула
   var boostedWeekly=avgWeek*boost;
   // Рекомендуемый срок: максимум 2 недели (14 дней), но если остаток маленький - меньше
   var maxDays=14;
@@ -1468,7 +1464,7 @@ function estimatePromoPeriod(item,discPct){
   } else if(willSellIn14>=remain){
     // Весь остаток уйдёт быстрее чем за 2 недели
     var weeksNeeded=remain/boostedWeekly;
-    days=Math.max(3,Math.ceil(weeksNeeded*7));
+    days=Math.max(DISC_MIN_DAYS,Math.ceil(weeksNeeded*7));
     days=Math.min(days,14);
     willSell=Math.min(Math.round(boostedWeekly*(days/7)),remain);
   } else {
@@ -1526,7 +1522,7 @@ function calcRecommendedDiscount(item,lot,lotRecovered){
         reason='Нет продаж уже '+weeks+' нед';
         if(hadPromo&&promoFailed){
           // Акция была и не помогла — углубляем постоянную скидку, акцию НЕ предлагаем
-          recDisc=Math.min(rates[Math.min(idx+1,rates.length-1)]||recDisc,90); // на ступень глубже
+          recDisc=Math.min(rates[Math.min(idx+1,rates.length-1)]||recDisc,MAX_DISCOUNT_PCT); // на ступень глубже
           reason+=' · акция не помогла → постоянная скидка глубже';
           isPromoCandidate=false;
         } else if(hadPromo&&histWithData.length){
@@ -1606,10 +1602,10 @@ function calcRecommendedDiscount(item,lot,lotRecovered){
       var liqBreaks=breaksFor(secondSeason);
       if(lotRecovered){
         // Окупился — агрессивно: сразу к минимуму
-        liqPrice=liqWeeks>=liqBreaks[2]?minLiqPrice:liqWeeks>=liqBreaks[1]?cost*0.7:cost;
+        liqPrice=liqWeeks>=liqBreaks[2]?minLiqPrice:liqWeeks>=liqBreaks[1]?cost*LIQ_STEP_MID:cost;
       } else {
         // Не окупился — осторожно: сначала себест, ниже только если совсем мёртвый
-        liqPrice=liqWeeks>=liqBreaks[3]?cost*0.7:cost;
+        liqPrice=liqWeeks>=liqBreaks[3]?cost*LIQ_STEP_MID:cost;
       }
     }
     // Не выше обычной скидки (слив всегда глубже или равен)
@@ -1651,32 +1647,43 @@ function calcRecommendedDiscount(item,lot,lotRecovered){
   var statusNote=inEvalPeriod?'⏳ Скидка поставлена — ждём результат (новых продаж пока нет)':'';
   return{disc:finalDisc,recDisc:recDisc,reason:reason,statusNote:statusNote,inEvalPeriod:inEvalPeriod,escalate:escalate,belowCost:belowCost,priceWarning:priceWarning,discPrice:Math.round(item.price*(1-finalDisc/100)),monthsLeft:monthsLeft,forecast:forecastVal,isPromoCandidate:isPromoCandidate,isLiquidate:isLiquidate,skipA:false};
 }
-function applyDiscount(itemId){
-  if(!activeLotId)return;
-  var l=getLot(activeLotId);if(!l)return;
-  var item=getItem(l,itemId);if(!item)return;
-  enrichItems([item],l.date,l.secondSeason,l.sellBy);item._abcd=getABCDMap(l.items)[item.id]||'D';
-  var m=metrics(l);var rec=calcRecommendedDiscount(item,l,m.recovery>=100);
-  if(rec.disc===0){alert('Скидка не нужна');return;}
+// ===== ПРИМЕНЕНИЕ СКИДКИ — ЕДИНАЯ ТОЧКА =====
+// Раньше эта логика была скопирована в пяти функциях: правка в одной не попадала
+// в остальные. Теперь варианты задаются флагами.
+// opts: {lotId, liquidate:true — пометить сливом, silent:true — без alert,
+//        rerender:'detail'|'promos'|'recos'|'none'}
+function applyDiscountCore(itemId,opts){
+  opts=opts||{};
+  var lid=opts.lotId||activeLotId;
+  var l=getLot(lid);if(!l)return false;
+  var item=getItem(l,itemId);if(!item)return false;
+  enrichItems([item],l.date,l.secondSeason,l.sellBy);
+  item._abcd=getABCDMap(l.items)[item.id]||'D';
+  var m=metrics(l);
+  var rec=calcRecommendedDiscount(item,l,m.recovery>=100);
+  if(rec.disc===0){if(!opts.silent)alert('Скидка не нужна');return false;}
   if(!item.discountHistory)item.discountHistory=[];
   if(item.discountPct>0)item.discountHistory.push({disc:item.discountPct,date:item.discountSetDate||'',price:item.discountPrice||0});
-  item.discountPct=rec.disc;item.discountPrice=rec.discPrice;item.discountSetDate=new Date().toISOString().slice(0,10);item.hasDiscount=true;
-  // Если рекомендация была "слить" — помечаем как подтверждённый слив
-  if(rec.isLiquidate)item.isLiquidated=true;
-  save();renderDetail();
+  item.discountPct=rec.disc;
+  item.discountPrice=rec.discPrice;
+  item.discountSetDate=new Date().toISOString().slice(0,10);
+  item.hasDiscount=true;
+  // Слив: подтверждён явно (кнопка «Слить») либо так рекомендовала система
+  if(opts.liquidate||rec.isLiquidate)item.isLiquidated=true;
+  save();
+  var mode=opts.rerender||'detail';
+  if(mode==='detail'&&activeLotId===lid)renderDetail();
+  else if(mode==='promos'){if(activeLotId===lid)renderDetail();renderPromos();}
+  else if(mode==='recos'){renderRecos();updateRecosBadge();}
+  return true;
+}
+function applyDiscount(itemId){
+  if(!activeLotId)return;
+  applyDiscountCore(itemId,{rerender:'detail'});
 }
 // Подтвердить слив (ставит скидку + флаг isLiquidated)
 function applyLiquidate(itemId,lotId){
-  var lid=lotId||activeLotId;
-  var l=getLot(lid);if(!l)return;
-  var item=getItem(l,itemId);if(!item)return;
-  enrichItems([item],l.date,l.secondSeason,l.sellBy);item._abcd=getABCDMap(l.items)[item.id]||'D';
-  var m=metrics(l);var rec=calcRecommendedDiscount(item,l,m.recovery>=100);
-  if(rec.disc===0){alert('Скидка не нужна');return;}
-  if(!item.discountHistory)item.discountHistory=[];
-  if(item.discountPct>0)item.discountHistory.push({disc:item.discountPct,date:item.discountSetDate||'',price:item.discountPrice||0});
-  item.discountPct=rec.disc;item.discountPrice=rec.discPrice;item.discountSetDate=new Date().toISOString().slice(0,10);item.hasDiscount=true;item.isLiquidated=true;
-  save();if(activeLotId===lid)renderDetail();renderPromos();
+  applyDiscountCore(itemId,{lotId:lotId,liquidate:true,rerender:'promos'});
 }
 // Убрать слив (снимает флаг и скидку)
 function removeLiquidate(itemId,lotId){
@@ -1696,15 +1703,19 @@ function applyAllDiscounts(lotId){
   var l=getLot(lotId);if(!l)return;
   enrichItems(l.items,l.date,l.secondSeason,l.sellBy);
   var abcdMap=getABCDMap(l.items);l.items.forEach(function(i){i._abcd=abcdMap[i.id]||'D';});
-  var m=metrics(l);var applied=0;
-  l.items.forEach(function(i){
-    var rec=calcRecommendedDiscount(i,l,m.recovery>=100);
-    if(rec.disc===0||rec.isPromoCandidate)return;
-    if(!i.discountHistory)i.discountHistory=[];
-    if(i.discountPct>0)i.discountHistory.push({disc:i.discountPct,date:i.discountSetDate||'',price:i.discountPrice||0});
-    i.discountPct=rec.disc;i.discountPrice=rec.discPrice;i.discountSetDate=new Date().toISOString().slice(0,10);i.hasDiscount=true;applied++;
+  var m=metrics(l),lotRecovered=m.recovery>=100,applied=0;
+  // Кандидаты в акцию пропускаем: для них скидка оформляется отдельно, через акцию
+  var targets=l.items.filter(function(i){
+    var rec=calcRecommendedDiscount(i,l,lotRecovered);
+    return rec.disc>0&&!rec.isPromoCandidate;
   });
-  save();renderDetail();alert('Постоянных скидок применено: '+applied);
+  if(!targets.length){alert('Позиций для постоянной скидки нет');return;}
+  if(!confirm('Применить постоянные скидки к '+targets.length+' позициям лота «'+l.name+'»?'))return;
+  autoSnapshot('перед массовым применением скидок в лоте '+l.name);
+  targets.forEach(function(i){
+    if(applyDiscountCore(i.id,{lotId:lotId,silent:true,rerender:'none'}))applied++;
+  });
+  renderDetail();alert('Постоянных скидок применено: '+applied);
 }
 
 // ===== HELPERS =====
@@ -2839,7 +2850,7 @@ function lotCardHtml(l){
 // ===== DETAIL =====
 function openDetail(id){
   activeLotId=id;detailFilters={abcd:new Set(),age:new Set()};detailMode='abcd_rev';
-  selectedItems=new Set();lastCheckedIdx=null;showABCDXYZ=false;activeDetailTab='dtab-table';
+  selectedItems=new Set();lastCheckedIdx=null;activeDetailTab='dtab-table';
   detailSort={col:'_abcd',dir:1};
   promoCandSel=new Set();_promoCandLast=null;
   renderDetail();
@@ -2858,27 +2869,9 @@ function renderDetail(){
   var totalRev=l.items.reduce(function(s,i){return s+(i.soldRev||0);},0);
   var totalGP=l.items.reduce(function(s,i){return s+(i.grossProfit||0);},0);
 
-  // Filter
-  var filtered=l.items.slice();
-  if(detailFilters.abcd.size>0)filtered=filtered.filter(function(i){return detailFilters.abcd.has(abcdMap[i.id]||'D');});
-  
-  if(detailFilters.age.size>0)filtered=filtered.filter(function(i){var w=i.weeksOnShelf||0;var z=w<=CFG.age1?'ok':w<=CFG.age2?'w':w<=CFG.age3?'r':'c';return detailFilters.age.has(z);});
-  if(detailSort.col){var col=detailSort.col;var dir=detailSort.dir;
-    var abcdField=detailMode==='abcd_qty'?'soldQty':'soldRev';
-    filtered.sort(function(a,b){
-      if(col==='_abcd'){
-        // Сортировка по группе ABCD: сначала по букве, потом внутри группы по показателю анализа (по убыванию)
-        var ga=abcdMap[a.id]||'D';var gb=abcdMap[b.id]||'D';
-        if(ga!==gb)return dir*(ga>gb?1:-1);
-        // Внутри одной группы - по показателю анализа, всегда по убыванию
-        var ma=a[abcdField]||0;var mb=b[abcdField]||0;
-        return mb-ma;
-      }
-
-      var av=a[col]!=null?a[col]:-Infinity;var bv=b[col]!=null?b[col]:-Infinity;
-      return dir*(av>bv?1:av<bv?-1:0);
-    });
-  }
+  // Фильтрация и сортировка — единая функция (её же использует выделение чекбоксами,
+  // иначе списки могли разъехаться и галочки вставали не на те строки)
+  var filtered=filterSortItems(l.items,abcdMap);
 
   var abcdModeHint=detailMode==='abcd_qty'?'группы по проданным штукам':'группы по выручке';
   var staleItems=l.items.filter(function(i){return i.soldQty===0&&(i.weeksOnShelf||0)>CFG.age1;});
@@ -2963,7 +2956,10 @@ function renderDetail(){
       '<td style="text-align:right;font-family:var(--mono)">'+(item.soldRev>0?fmt(item.soldRev):'—')+'</td>'+
       '<td style="text-align:right" class="mono">'+(item.soldQty>0?fmtD(item.avgPerMonth):'—')+'</td>'+
       '<td style="text-align:right" class="'+covCls+' mono">'+(item.coverMonths!==null&&item.soldQty>0?fmtD(item.coverMonths)+'м':'—')+'</td>'+
-      '<td style="text-align:center"><button class="btn btn-ghost btn-sm" style="font-size:13px;padding:2px 6px" onclick="openItemStats(\''+item.id+'\')" title="Статистика продаж">📈</button></td>'+
+      // Колонка «График»: динамика продаж по неделям + кнопка подробной статистики
+      '<td style="text-align:center;white-space:nowrap">'+
+        (spark?'<span class="spark" style="color:var(--accent)" title="Продажи по неделям (последние '+(item.weeks||[]).length+')">'+spark+'</span> ':'<span style="color:var(--text3);font-size:10px">—</span> ')+
+        '<button class="btn btn-ghost btn-sm" style="font-size:13px;padding:2px 6px" onclick="openItemStats(\''+item.id+'\')" title="Статистика продаж">📈</button></td>'+
       abcdxyzCells+
       discCell+
       '</tr>';
@@ -3203,30 +3199,31 @@ function toggleFilter(type,val){if(detailFilters[type].has(val))detailFilters[ty
 function clearFilters(){detailFilters={abcd:new Set(),age:new Set()};renderDetail();}
 
 // ===== CHECKBOX SELECTION (all/none/shift/ctrl) =====
-function getFilteredIds(){
-  var l=getLot(activeLotId);if(!l)return[];
-  var abcdMap=getABCDMap(l.items);
-  var filtered=l.items.slice();
+// Единая фильтрация+сортировка позиций лота по текущим фильтрам таблицы.
+// Используется и при отрисовке, и при работе с чекбоксами — порядок строк совпадает.
+function filterSortItems(items,abcdMap){
+  var filtered=items.slice();
   if(detailFilters.abcd.size>0)filtered=filtered.filter(function(i){return detailFilters.abcd.has(abcdMap[i.id]||'D');});
-  
   if(detailFilters.age.size>0)filtered=filtered.filter(function(i){var w=i.weeksOnShelf||0;var z=w<=CFG.age1?'ok':w<=CFG.age2?'w':w<=CFG.age3?'r':'c';return detailFilters.age.has(z);});
-  if(detailSort.col){var col=detailSort.col;var dir=detailSort.dir;
+  if(detailSort.col){
+    var col=detailSort.col,dir=detailSort.dir;
     var abcdField=detailMode==='abcd_qty'?'soldQty':'soldRev';
     filtered.sort(function(a,b){
       if(col==='_abcd'){
-        // Сортировка по группе ABCD: сначала по букве, потом внутри группы по показателю анализа (по убыванию)
-        var ga=abcdMap[a.id]||'D';var gb=abcdMap[b.id]||'D';
+        // Сначала по букве группы, внутри группы — по показателю анализа (по убыванию)
+        var ga=abcdMap[a.id]||'D',gb=abcdMap[b.id]||'D';
         if(ga!==gb)return dir*(ga>gb?1:-1);
-        // Внутри одной группы - по показателю анализа, всегда по убыванию
-        var ma=a[abcdField]||0;var mb=b[abcdField]||0;
-        return mb-ma;
+        return (b[abcdField]||0)-(a[abcdField]||0);
       }
-
-      var av=a[col]!=null?a[col]:-Infinity;var bv=b[col]!=null?b[col]:-Infinity;
+      var av=a[col]!=null?a[col]:-Infinity,bv=b[col]!=null?b[col]:-Infinity;
       return dir*(av>bv?1:av<bv?-1:0);
     });
   }
-  return filtered.map(function(i){return i.id;});
+  return filtered;
+}
+function getFilteredIds(){
+  var l=getLot(activeLotId);if(!l)return[];
+  return filterSortItems(l.items,getABCDMap(l.items)).map(function(i){return i.id;});
 }
 function onRowCheck(e,idx){
   var ids=getFilteredIds();
@@ -3940,17 +3937,9 @@ function recoExportPriceUp(){
   var r=collectAllRecos(document.getElementById('recos-lot-filter').value);
   exportRecosToExcel(r.priceUp,'Повысить цену','FBSM_повысить_цену',recoPriceSel.size?recoPriceSel:null);
 }
-// Тихий слив (без ре-рендера — для массового)
+// Тихий слив (без ре-рендера — для массового применения)
 function recoApplyLiquidateSilent(lotId,itemId){
-  var l=getLot(lotId);if(!l)return;
-  var item=getItem(l,itemId);if(!item)return;
-  enrichItems([item],l.date,l.secondSeason,l.sellBy);item._abcd=getABCDMap(l.items)[item.id]||'D';
-  var m=metrics(l);var rec=calcRecommendedDiscount(item,l,m.recovery>=100);
-  if(rec.disc===0)return;
-  if(!item.discountHistory)item.discountHistory=[];
-  if(item.discountPct>0)item.discountHistory.push({disc:item.discountPct,date:item.discountSetDate||'',price:item.discountPrice||0});
-  item.discountPct=rec.disc;item.discountPrice=rec.discPrice;item.discountSetDate=new Date().toISOString().slice(0,10);item.hasDiscount=true;item.isLiquidated=true;
-  save();
+  applyDiscountCore(itemId,{lotId:lotId,liquidate:true,silent:true,rerender:'none'});
 }
 
 var _recoLastChk=null; // для shift-выделения
@@ -3992,16 +3981,7 @@ function recoApplyDeepen(lotId,itemId){
 }
 function recoApplyLiquidate(lotId,itemId){
   // Подтвердить слив БЕЗ переключения вида — остаёмся в рекомендациях
-  var l=getLot(lotId);if(!l)return;
-  var item=getItem(l,itemId);if(!item)return;
-  enrichItems([item],l.date,l.secondSeason,l.sellBy);item._abcd=getABCDMap(l.items)[item.id]||'D';
-  var m=metrics(l);var rec=calcRecommendedDiscount(item,l,m.recovery>=100);
-  if(rec.disc===0){return;}
-  if(!item.discountHistory)item.discountHistory=[];
-  if(item.discountPct>0)item.discountHistory.push({disc:item.discountPct,date:item.discountSetDate||'',price:item.discountPrice||0});
-  item.discountPct=rec.disc;item.discountPrice=rec.discPrice;item.discountSetDate=new Date().toISOString().slice(0,10);item.hasDiscount=true;item.isLiquidated=true;
-  save();
-  renderRecos();updateRecosBadge();
+  applyDiscountCore(itemId,{lotId:lotId,liquidate:true,silent:true,rerender:'recos'});
 }
 
 function createMixedPromo(){
@@ -4242,15 +4222,7 @@ function applyDiscountFrom(lotId,itemId){
   renderPromos();
 }
 function applyDiscountSilent(lotId,itemId){
-  var l=getLot(lotId);if(!l)return;
-  var item=getItem(l,itemId);if(!item)return;
-  enrichItems([item],l.date,l.secondSeason,l.sellBy);item._abcd=getABCDMap(l.items)[item.id]||'D';
-  var m=metrics(l);var rec=calcRecommendedDiscount(item,l,m.recovery>=100);
-  if(rec.disc===0){return;}
-  if(!item.discountHistory)item.discountHistory=[];
-  if(item.discountPct>0)item.discountHistory.push({disc:item.discountPct,date:item.discountSetDate||'',price:item.discountPrice||0});
-  item.discountPct=rec.disc;item.discountPrice=rec.discPrice;item.discountSetDate=new Date().toISOString().slice(0,10);item.hasDiscount=true;
-  save();
+  applyDiscountCore(itemId,{lotId:lotId,silent:true,rerender:'none'});
 }
 function removeDiscountFrom(lotId,itemId){
   var l=getLot(lotId);if(!l)return;
@@ -4325,9 +4297,9 @@ function renderPromoDetail(){
     var res=resolvePromoItem(pi);if(!res)return;var item=res.item;
     var remain=Math.max(item.qty||0,0);
     totalRemain+=remain;
-    var days=p.unlimited?30:(end&&p.startDate?Math.max(1,(end-new Date(p.startDate))/MS_PER_DAY):14);
+    var days=p.unlimited?PROMO_ASSUMED_DAYS:(end&&p.startDate?Math.max(1,(end-new Date(p.startDate))/MS_PER_DAY):14);
     var weeks=days/7;
-    var lb=getLearnedBoost(pi.discPct||0);var bmul=lb?lb.boost:(1+((pi.discPct||0)/100)*2);
+    var lb=getLearnedBoost(pi.discPct||0);var bmul=lb?lb.boost:(1+((pi.discPct||0)/100)*PROMO_BOOST_K);
     var boost=Math.round((item.avgPerMonth||0)/4*weeks*bmul);
     forecastSold+=Math.min(boost,remain);
     var dp=item.price*(1-(pi.discPct||0)/100);
