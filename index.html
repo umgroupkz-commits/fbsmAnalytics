@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v68</title>
+<title>FBSM — Управление лотами v69</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -170,7 +170,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v68</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v69</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -190,7 +190,7 @@ tr:hover td{background:#1a2030}
 <div id="page-analytics" class="page active">
   <div style="padding:16px 20px;flex:1" id="analytics-content"></div>
 </div>
-<input type="hidden" id="filter-status" value="">
+<input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreBackupFile(event)">
 <div id="page-promos" class="page">
   <div class="action-bar" style="flex-wrap:wrap;gap:8px">
     <div style="display:flex;gap:4px">
@@ -535,8 +535,8 @@ tr:hover td{background:#1a2030}
       <div style="display:grid;grid-template-columns:auto 1fr;gap:5px 10px;align-items:center;font-size:11px">
         <label>Дата конца сезона</label><input class="inp inp-sm" id="cfg-seasonEnd" type="date" style="width:130px">
         <label>Мин. цена = себест. ×</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-minPriceMult" type="number" min="0.5" max="2" step="0.05" style="width:55px"></div>
-        <label style="font-size:10px">Скидка ниже себеса</label>
-        <div style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="cfg-allowBelowCost" style="width:14px;height:14px"><label for="cfg-allowBelowCost" style="font-size:10px;color:var(--text2)">если лот окупился</label></div>
+        <label style="font-size:10px">Слив ниже себестоимости</label>
+        <div style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="cfg-allowBelowCost" style="width:14px;height:14px"><label for="cfg-allowBelowCost" style="font-size:10px;color:var(--text2)">разрешить (иначе стоп у себеса)</label></div>
                 <label>Цель прибыли (%)</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-profitTarget" type="number" min="0" max="500" style="width:55px"></div>
         <label style="font-size:10px">«Маленький остаток» ≤</label><div style="display:flex;align-items:center;gap:4px"><input class="inp inp-sm" id="cfg-smallStock" type="number" min="1" max="50" style="width:55px"> шт</div>
         <label style="font-size:10px">Не скидывать группу A</label>
@@ -600,6 +600,29 @@ tr:hover td{background:#1a2030}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+// Запасной источник библиотек: если основной CDN недоступен, грузим с unpkg.
+// Без этого страница молча ломается (файлы не читаются / нет входа).
+(function(){
+  function load(src,cb){var s=document.createElement('script');s.src=src;s.onload=cb;s.onerror=function(){cb(new Error(src));};document.head.appendChild(s);}
+  var need=[];
+  if(typeof XLSX==='undefined')need.push(['https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js','XLSX']);
+  if(typeof supabase==='undefined')need.push(['https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js','supabase']);
+  if(!need.length)return;
+  var left=need.length;
+  need.forEach(function(pair){
+    load(pair[0],function(){
+      left--;
+      if(left===0){
+        var stillMissing=(typeof XLSX==='undefined'?'работа с файлами Excel':'')+((typeof XLSX==='undefined'&&typeof supabase==='undefined')?' и ':'')+(typeof supabase==='undefined'?'вход и синхронизация':'');
+        if(stillMissing){
+          alert('Не удалось загрузить компоненты программы ('+stillMissing+').\nПроверьте интернет и обновите страницу (Ctrl+Shift+R).');
+        }
+      }
+    });
+  });
+})();
+</script>
 <script>
 // ===== SUPABASE CONFIG =====
 var SB_URL = 'https://gginvthrgscpnskftfqk.supabase.co';
@@ -675,7 +698,7 @@ const DEF_CFG={
   abcdA:50,abcdB:80,abcdC:95,
   age1:4,age2:8,age3:16,
   cov1:3,cov2:6,targetMargin:50,
-  seasonEnd:'',minPriceMult:1.0,allowBelowCost:false,
+  seasonEnd:'',minPriceMult:1.0,allowBelowCost:true,
   discThresholds:[1.0,1.3,1.7,2.5,4.0,6.0,10.0],
   discRates:[0,10,20,30,40,50,60,70],
   noSaleDiscRates:[0,15,30,50,70],
@@ -688,12 +711,21 @@ const DEF_CFG={
   skipDiscountOnA:true,
   markupBuffer:15,
   recentWeeks:8,
-  secondSeasonBoost:1.5,
   promoThreshold:30,
-  promoThresholdSecondSeason:50
+  promoThresholdSecondSeason:50,
+  _cfgVer:2
 };
 let CFG=Object.assign({},DEF_CFG);
-function loadSettings(){try{const s=localStorage.getItem(SETTINGS_KEY);if(s)CFG=Object.assign({},DEF_CFG,JSON.parse(s));}catch(e){}}
+function loadSettings(){
+  try{const s=localStorage.getItem(SETTINGS_KEY);if(s)CFG=Object.assign({},DEF_CFG,JSON.parse(s));}catch(e){}
+  // Миграция v2: настройка «скидка ниже себестоимости» раньше ни на что не влияла
+  // (слив всегда мог пробить себестоимость). Теперь она работает — чтобы поведение
+  // не изменилось молча, у существующих настроек включаем её один раз.
+  if(CFG._cfgVer!==2){
+    CFG.allowBelowCost=true;CFG._cfgVer=2;
+    try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(CFG));}catch(e){}
+  }
+}
 function saveSettings(){
   CFG.abcdA=parseInt(document.getElementById('cfg-abcdA').value)||50;
   CFG.abcdB=parseInt(document.getElementById('cfg-abcdB').value)||80;
@@ -1587,6 +1619,11 @@ function calcRecommendedDiscount(item,lot,lotRecovered){
     var goingBelow=lotRecovered||(remain>smallStock&&(item.weeksOnShelf||0)>=breaksFor(secondSeason)[3]);
     if(goingBelow)liqPrice=Math.max(liqPrice,minLiqPrice);
     else liqPrice=Math.max(liqPrice,Math.min(cost,regPriceAtRec)); // не ниже себеса (но и не выше обычной скидки)
+    // Настройка «слив ниже себестоимости»: если выключена — цена не опускается ниже себестоимости
+    if(CFG.allowBelowCost===false&&cost>0&&liqPrice<cost){
+      liqPrice=cost;
+      priceWarning='Слив ограничен себестоимостью (в настройках выключен слив ниже себеса)';
+    }
     finalDisc=item.price>0?Math.round((1-liqPrice/item.price)*100):recDisc;
     belowCost=liqPrice<cost;
     if(belowCost){
@@ -1741,16 +1778,87 @@ function getSparkline(weeks){
 
 // ===== SUPABASE SYNC =====
 function getSB(){if(window._sb)return window._sb;window._sb=window.supabase.createClient(SB_URL,SB_KEY);return window._sb;}
+// ===== ОЧЕРЕДЬ СИНХРОНИЗАЦИИ =====
+// Индикатор в шапке показывает ФАКТ: сколько записей ещё не доехало в облако.
+// Несохранённое копится в очереди и повторяется автоматически, а не теряется молча.
+var syncQueue={};        // "таблица:id" → {table,id,data,deleted}
+var syncInFlight=0;      // сколько запросов сейчас в полёте
+var syncLastError='';    // текст последней ошибки (для подсказки)
+var _syncRetryTimer=null;
+
+function syncPendingCount(){return Object.keys(syncQueue).length;}
+function renderSyncStatus(){
+  var el=document.getElementById('sync-status');if(!el)return;
+  if(syncInFlight>0){el.textContent='⟳ Сохранение в облако...';el.style.color='var(--text3)';el.style.cursor='default';el.onclick=null;return;}
+  var n=syncPendingCount();
+  if(n>0){
+    el.textContent='⚠ Не сохранено в облаке: '+n+' — повторить';
+    el.style.color='var(--orange)';el.style.cursor='pointer';
+    el.title=syncLastError||'Нет связи с облаком. Данные сохранены на этом устройстве.';
+    el.onclick=function(){flushSyncQueue(true);};
+    return;
+  }
+  el.style.color='var(--text3)';el.style.cursor='default';el.onclick=null;el.title='';
+  if(el.dataset&&el.dataset.tmp==='1'){return;} // временное сообщение показываем как есть
+  el.textContent='';
+}
+// Временное сообщение (например «Синхронизировано»), затем возврат к обычному статусу
+function showSyncStatus(msg,ms){
+  var el=document.getElementById('sync-status');if(!el)return;
+  if(!msg){if(el.dataset)el.dataset.tmp='';renderSyncStatus();return;}
+  el.textContent=msg;
+  if(el.dataset)el.dataset.tmp='1';
+  if(ms)setTimeout(function(){if(el.dataset)el.dataset.tmp='';renderSyncStatus();},ms);
+}
+function queueSync(table,id,data,deleted){
+  syncQueue[table+':'+id]={table:table,id:id,data:data,deleted:!!deleted};
+  renderSyncStatus();
+  flushSyncQueue(false);
+}
+// Отправка очереди. force=true — ручной повтор по клику
+async function flushSyncQueue(force){
+  var keys=Object.keys(syncQueue);
+  if(!keys.length){if(force)showSyncStatus('✓ Всё синхронизировано',2000);return true;}
+  if(syncInFlight>0&&!force)return false;
+  syncInFlight++;renderSyncStatus();
+  var okAll=true;
+  for(var i=0;i<keys.length;i++){
+    var k=keys[i],job=syncQueue[k];
+    if(!job)continue;
+    try{
+      var payload=job.deleted
+        ?{id:job.id,data:{_deleted:true,deletedAt:new Date().toISOString()},updated_at:new Date().toISOString()}
+        :{id:job.id,data:job.data,updated_at:new Date().toISOString()};
+      var r=await getSB().from(job.table).upsert(payload);
+      if(r.error){okAll=false;syncLastError=r.error.message;console.error('sync:',r.error.message);}
+      else{delete syncQueue[k];}
+    }catch(e){okAll=false;syncLastError=(e&&e.message)||'нет связи';console.error('sync:',e);}
+  }
+  syncInFlight--;
+  renderSyncStatus();
+  if(!okAll){
+    // Автоповтор через минуту — на случай временной потери связи
+    if(_syncRetryTimer)clearTimeout(_syncRetryTimer);
+    _syncRetryTimer=setTimeout(function(){flushSyncQueue(false);},60000);
+  } else if(force){showSyncStatus('✓ Синхронизировано',2000);}
+  return okAll;
+}
+// Повтор при возвращении связи и перед закрытием вкладки — предупреждение о несохранённом
+window.addEventListener('online',function(){flushSyncQueue(false);});
+window.addEventListener('beforeunload',function(e){
+  if(syncPendingCount()>0){e.preventDefault();e.returnValue='Есть изменения, не сохранённые в облако. Закрыть страницу?';return e.returnValue;}
+});
+
 async function sbUpsert(table,id,data){
-  try{var r=await getSB().from(table).upsert({id:id,data:data,updated_at:new Date().toISOString()});if(r.error)console.error('sbUpsert:',r.error.message);}catch(e){console.error(e);}
+  queueSync(table,id,data,false);
 }
 async function sbDelete(table,id){
   // Мягкое удаление: помечаем запись как удалённую в облаке (надгробие),
   // чтобы удаление синхронизировалось на все устройства и запись не воскресала.
-  try{await getSB().from(table).upsert({id:id,data:{_deleted:true,deletedAt:new Date().toISOString()},updated_at:new Date().toISOString()});}catch(e){console.error('sbDelete:',e);}
+  queueSync(table,id,null,true);
 }
 async function sbLoadAll(table){
-  try{var r=await getSB().from(table).select('id, data, updated_at').order('updated_at',{ascending:false});if(r.error){showSyncStatus('Ошибка БД');return null;}return r.data;}catch(e){showSyncStatus('Нет связи с БД');return null;}
+  try{var r=await getSB().from(table).select('id, data, updated_at').order('updated_at',{ascending:false});if(r.error){showSyncStatus('⚠ Ошибка БД: '+r.error.message,6000);return null;}return r.data;}catch(e){showSyncStatus('⚠ Нет связи с облаком — работаем с локальными данными',6000);return null;}
 }
 async function initFromSupabase(){
   showSyncStatus('⟳ Синхронизация...');
@@ -1790,7 +1898,6 @@ async function initFromSupabase(){
   }
   showSyncStatus('');renderAnalytics();checkPromoExpiry();updateRecosBadge();
 }
-function showSyncStatus(msg){var el=document.getElementById('sync-status');if(el)el.textContent=msg;}
 
 // Check expired promos and notify
 // Акция истекла, если прошёл ВЕСЬ день окончания (endDate включительно)
@@ -2130,7 +2237,7 @@ function batchUnmerge(idx){
 }
 function batchDeleteOne(idx){
   var m=batchMerges[idx];if(!m)return;
-  if(!confirm('Удалить лот «'+esc(m.name)+'»? Он не будет создан.'))return;
+  if(!confirm('Удалить лот «'+m.name+'»? Он не будет создан.'))return;
   batchMerges.splice(idx,1);
   batchSel=new Set();
   renderBatchGroups();
@@ -2249,7 +2356,7 @@ function buildPreview(items,cost,weeks,totalUnits){
   document.getElementById('cw3-thead').innerHTML='<tr><th>Наименование</th><th>Ост.</th><th style="text-align:right">Цена</th><th style="text-align:right">Себест.</th><th style="text-align:right">Наценка</th><th style="text-align:right">Маржа</th><th>ABCD</th></tr>';
   document.getElementById('cw3-tbody').innerHTML=items.map(function(item){
     var abc=abcdRev[item.id]||'D';
-    var mgColor=item.mgUnit>=30?'var(--green)':item.mgUnit>15?'var(--yellow)':'var(--red)';
+    var mgTgt=CFG.targetMargin||50;var mgColor=item.mgUnit>=mgTgt?'var(--green)':item.mgUnit>=mgTgt/2?'var(--yellow)':'var(--red)';
     var remain=Math.max(item.qty||0,0);
     return '<tr><td style="font-weight:500">'+esc(item.name)+'</td><td class="mono">'+remain+'</td><td style="text-align:right" class="mono">'+(item.price>0?fmt(item.price):'—')+'</td><td style="text-align:right;color:var(--text2)" class="mono">'+fmt(item.costPer)+'</td><td style="text-align:right" class="mono">×'+(1+item.mkCalc/100).toFixed(2)+'</td><td style="text-align:right;color:'+mgColor+'" class="mono">'+pct(item.mgUnit)+'</td><td><span class="badge badge-'+abc+'">'+abc+'</span></td></tr>';
   }).join('');
@@ -2451,7 +2558,8 @@ function saveLotParams(){
 // Очистить все загруженные данные лота (позиции, продажи), оставить параметры
 function clearLotData(){
   var l=getLot(updDraft.lotId);if(!l)return;
-  if(!confirm('Очистить ВСЕ позиции и продажи лота «'+esc(l.name)+'»?\nПараметры (стоимость, цель, дедлайн) сохранятся.\nПосле этого загрузите файлы заново с галочкой «Оприходованы новые позиции».'))return;
+  if(!confirm('Очистить ВСЕ позиции и продажи лота «'+l.name+'»?\nПараметры (стоимость, цель, дедлайн) сохранятся.\nПосле этого загрузите файлы заново с галочкой «Оприходованы новые позиции».'))return;
+  autoSnapshot('перед очисткой данных лота '+l.name);
   l.items=[];
   l.weeks=[];
   l.updatedAt=new Date().toISOString();
@@ -2654,7 +2762,7 @@ function buildAdvisor(l,m){
 var _collapsedGroups={}; // состояние свёрнутости папок
 function toggleGroup(gname){_collapsedGroups[gname]=!_collapsedGroups[gname];renderAnalytics();}
 function ungroupAll(gname){
-  if(!confirm('Убрать все лоты из папки «'+esc(gname)+'»? Сами лоты останутся.'))return;
+  if(!confirm('Убрать все лоты из папки «'+gname+'»? Сами лоты останутся.'))return;
   lots.forEach(function(l){if(l.group===gname){l.group='';sbUpsert('lots',l.id,l);}});
   save();renderAnalytics();
 }
@@ -2805,7 +2913,7 @@ function renderDetail(){
   var tableRows='';
   filtered.forEach(function(item,idx){
     var abc=abcdMap[item.id]||'D';
-    var mgColor=item.mgUnit>=30?'var(--green)':item.mgUnit>15?'var(--yellow)':'var(--red)';
+    var mgTgt=CFG.targetMargin||50;var mgColor=item.mgUnit>=mgTgt?'var(--green)':item.mgUnit>=mgTgt/2?'var(--yellow)':'var(--red)';
     var remain=Math.max(item.qty||0,0);
     var spark=getSparkline(item.weeks);
     var ageCls=getAgeClass(item.weeksOnShelf||0);var covCls=getCoverClass(item.coverMonths);
@@ -4469,7 +4577,30 @@ function openItemStats(itemId){
   document.getElementById('modal-itemstats').style.display='flex';
 }
 
-function delLot(id){if(!confirm('Удалить лот полностью?'))return;sbDelete('lots',id);lots=lots.filter(function(l){return l.id!==id;});localStorage.setItem('fbsm_lots_v5',JSON.stringify(lots));closeModal('modal-detail');renderAnalytics();}
+function delLot(id){
+  var l=getLot(id);if(!l)return;
+  // Предупреждаем, если лот участвует в акциях — его позиции оттуда будут убраны
+  var affected=promos.filter(function(p){return (p.items||[]).some(function(pi){return (pi.lotId||p.lotId)===id;});});
+  var msg='Удалить лот «'+l.name+'» полностью?\nПозиций: '+((l.items||[]).length);
+  if(affected.length)msg+='\n\n⚠ Его позиции есть в акциях ('+affected.length+'): '+affected.map(function(p){return p.name;}).slice(0,3).join(', ')+
+    '\nОни будут убраны из этих акций.';
+  msg+='\n\nОтменить удаление будет нельзя (перед удалением сохраняется снимок).';
+  if(!confirm(msg))return;
+  autoSnapshot('перед удалением лота '+l.name);
+  // Чистим позиции удаляемого лота во всех акциях, чтобы не оставалось «мусорных» строк
+  var cleaned=0;
+  promos.forEach(function(p){
+    if(!Array.isArray(p.items))return;
+    var before=p.items.length;
+    p.items=p.items.filter(function(pi){return (pi.lotId||p.lotId)!==id;});
+    if(p.items.length!==before){cleaned++;if(p.lotId===id&&p.items.length)p.lotId=p.items[0].lotId||p.lotId;sbUpsert('promos',p.id,p);}
+  });
+  if(cleaned)localStorage.setItem('fbsm_promos_v1',JSON.stringify(promos));
+  sbDelete('lots',id);
+  lots=lots.filter(function(x){return x.id!==id;});
+  localStorage.setItem('fbsm_lots_v5',JSON.stringify(lots));
+  closeModal('modal-detail');renderAnalytics();updateRecosBadge();
+}
 function toggleStatus(id){var l=getLot(id);if(!l)return;l.status=l.status==='closed'?'active':'closed';save();closeModal('modal-detail');renderAnalytics();}
 
 // ===== ANALYTICS PAGE =====
@@ -4477,7 +4608,7 @@ function toggleStatus(id){var l=getLot(id);if(!l)return;l.status=l.status==='clo
 // Экран "Требует внимания" — алерты по всем лотам
 function renderAnalytics(){
   var el=document.getElementById('analytics-content');
-  var headerBtn='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-size:14px;font-weight:600">Лоты и сводная аналитика</div><div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" onclick="forceSyncAll()"><i class="ti ti-cloud-upload"></i> Синхронизировать</button><button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i> Настройки</button><button class="btn btn-ghost btn-sm" onclick="openBatchUpdate()"><i class="ti ti-refresh"></i> Обновить все</button><button class="btn btn-primary btn-sm" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button></div></div>';
+  var headerBtn='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-size:14px;font-weight:600">Лоты и сводная аналитика</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="downloadBackup()" title="Скачать резервную копию всех данных"><i class="ti ti-download"></i> Копия</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'restore-file\').click()" title="Восстановить данные из файла копии"><i class="ti ti-upload"></i> Восстановить</button><button class="btn btn-ghost btn-sm" onclick="forceSyncAll()"><i class="ti ti-cloud-upload"></i> Синхронизировать</button><button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i> Настройки</button><button class="btn btn-ghost btn-sm" onclick="openBatchUpdate()"><i class="ti ti-refresh"></i> Обновить все</button><button class="btn btn-primary btn-sm" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button></div></div>';
   if(!lots.length){el.innerHTML=headerBtn+'<div class="empty-state"><div style="font-size:40px">📦</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">Нет лотов</div><div style="font-size:12px">Нажмите «Новый лот»</div></div>';return;}
   lots.forEach(function(l){enrichItems(l.items,l.date,l.secondSeason,l.sellBy);});
   updateRecosBadge();var html=headerBtn+
@@ -4513,11 +4644,67 @@ function renderAnalytics(){
   ungrouped.forEach(function(l){html+=lotCardHtml(l);});
   el.innerHTML=html;
 }
-function forceSyncAll(){
+// ===== РЕЗЕРВНАЯ КОПИЯ =====
+// Скачивает всё (лоты, акции, настройки) одним файлом. Восстановление — из этого же файла.
+function downloadBackup(){
+  var data={
+    _format:'fbsm-lots-backup',_version:1,
+    savedAt:new Date().toISOString(),
+    lots:lots,promos:promos,settings:CFG
+  };
+  var blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='FBSM_копия_'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);
+  showSyncStatus('✓ Копия сохранена: лотов '+lots.length+', акций '+promos.length,4000);
+}
+// Автокопия в браузере перед рискованными операциями (последние 3 снимка)
+function autoSnapshot(reason){
+  try{
+    var snaps=JSON.parse(localStorage.getItem('fbsm_snapshots')||'[]');
+    snaps.unshift({at:new Date().toISOString(),reason:reason||'',lots:lots,promos:promos});
+    snaps=snaps.slice(0,3);
+    localStorage.setItem('fbsm_snapshots',JSON.stringify(snaps));
+  }catch(e){console.warn('снимок не сохранён (нет места)',e);}
+}
+function restoreBackupFile(e){
+  var f=e.target.files[0];if(!f)return;
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    var data;
+    try{data=JSON.parse(ev.target.result);}catch(err){alert('Не удалось прочитать файл: это не файл резервной копии');return;}
+    if(!data||data._format!=='fbsm-lots-backup'||!Array.isArray(data.lots)){alert('Это не файл резервной копии программы');return;}
+    var msg='В копии от '+(data.savedAt||'').slice(0,10)+':\n  лотов: '+data.lots.length+'\n  акций: '+((data.promos||[]).length)+
+      '\n\nСейчас в программе:\n  лотов: '+lots.length+'\n  акций: '+promos.length+
+      '\n\nВосстановить? Текущие данные будут ЗАМЕНЕНЫ данными из копии.\n(перед заменой сохраняется снимок для отката)';
+    if(!confirm(msg))return;
+    autoSnapshot('перед восстановлением из копии');
+    lots=data.lots;promos=data.promos||[];
+    if(data.settings)CFG=Object.assign({},DEF_CFG,data.settings);
+    localStorage.setItem('fbsm_lots_v5',JSON.stringify(lots));
+    localStorage.setItem('fbsm_promos_v1',JSON.stringify(promos));
+    localStorage.setItem(SETTINGS_KEY,JSON.stringify(CFG));
+    lots.forEach(function(l){sbUpsert('lots',l.id,l);});
+    promos.forEach(function(p){sbUpsert('promos',p.id,p);});
+    alert('✓ Восстановлено: лотов '+lots.length+', акций '+promos.length+'.\nДанные выгружаются в облако.');
+    renderAnalytics();updateRecosBadge();
+  };
+  reader.readAsText(f);
+  e.target.value='';
+}
+// Полная выгрузка в облако. Результат — по факту ответа сервера, а не по таймеру.
+async function forceSyncAll(){
   showSyncStatus('⟳ Выгрузка в облако...');
-  lots.forEach(function(l){sbUpsert('lots',l.id,l);});
-  promos.forEach(function(p){sbUpsert('promos',p.id,p);});
-  setTimeout(function(){showSyncStatus('✓ Синхронизировано');setTimeout(function(){showSyncStatus('');},2000);},800);
+  lots.forEach(function(l){syncQueue['lots:'+l.id]={table:'lots',id:l.id,data:l,deleted:false};});
+  promos.forEach(function(p){syncQueue['promos:'+p.id]={table:'promos',id:p.id,data:p,deleted:false};});
+  var total=syncPendingCount();
+  var ok=await flushSyncQueue(true);
+  if(ok)showSyncStatus('✓ Выгружено в облако: '+total,3000);
+  else alert('Не удалось выгрузить всё в облако.\nОсталось несохранённых записей: '+syncPendingCount()+
+    '\nПричина: '+(syncLastError||'нет связи')+
+    '\n\nДанные сохранены на этом устройстве. Программа повторит попытку автоматически.');
 }
 
 loadSettings();
