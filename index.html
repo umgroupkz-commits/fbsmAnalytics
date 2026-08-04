@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v78</title>
+<title>FBSM — Управление лотами v79</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -169,7 +169,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v78</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v79</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -3706,6 +3706,96 @@ function renderHelp(){
 }
 
 
+// ===== РАЗБОР ОТ ИИ =====
+// Модели отдаётся УЖЕ посчитанная сводка: она ничего не вычисляет, только толкует.
+// Все цифры в программе остаются своими — ответ ИИ показывается отдельно и помечен как мнение.
+function aiBuildSummary(filterLotId){
+  var lines=[];
+  var rows=collectAllItemsCached();
+  if(filterLotId)rows=rows.filter(function(r){return r.lot.id===filterLotId;});
+  if(!rows.length)return '';
+  // Часть 1: партии
+  var byLot={};
+  rows.forEach(function(r){
+    if(!byLot[r.lot.id])byLot[r.lot.id]={lot:r.lot,m:r.m,items:[]};
+    byLot[r.lot.id].items.push(r);
+  });
+  lines.push('ПАРТИИ (лоты):');
+  Object.keys(byLot).forEach(function(id){
+    var b=byLot[id],l=b.lot,m=b.m;
+    var v=lotVerdict(l,m);
+    lines.push('- «'+l.name+'»: вложено '+Math.round(m.fullCost)+' тг, вернулось '+Math.round(m.factRev)+' тг ('+Math.round(m.recovery)+'%), '+
+      'остаток '+m.remainQty+' шт, продано '+m.soldQty+' из '+m.totalQty+' шт'+
+      (l.sellBy?(', продать до '+l.sellBy):', срок продажи не задан')+
+      (l.secondSeason?', прошлый сезон':'')+'. Оценка: '+v.t);
+  });
+  // Часть 2: что зависло — позиции с большим остатком и без продаж
+  var stuck=rows.filter(function(r){return (r.item.qty||0)>0&&(r.item.soldQty||0)===0;})
+    .sort(function(a,b){return (b.item.qty||0)*(b.item.price||0)-(a.item.qty||0)*(a.item.price||0);}).slice(0,20);
+  if(stuck.length){
+    lines.push('','ПОЗИЦИИ БЕЗ ЕДИНОЙ ПРОДАЖИ (топ по замороженным деньгам):');
+    stuck.forEach(function(r){
+      lines.push('- '+r.item.name+' [партия «'+r.lot.name+'»]: остаток '+r.item.qty+' шт по '+Math.round(r.item.price)+' тг, лежит '+(r.item.weeksOnShelf||0)+' нед');
+    });
+  }
+  // Часть 3: медленные — продаются, но не успевают
+  var slow=rows.filter(function(r){return (r.item.qty||0)>0&&(r.item.soldQty||0)>0&&r.item.coverMonths!==null&&r.item.coverMonths>6;})
+    .sort(function(a,b){return (b.item.coverMonths||0)-(a.item.coverMonths||0);}).slice(0,15);
+  if(slow.length){
+    lines.push('','ПРОДАЮТСЯ, НО ЗАПАСА БОЛЬШЕ ЧЕМ НА ПОЛГОДА:');
+    slow.forEach(function(r){
+      lines.push('- '+r.item.name+' [«'+r.lot.name+'»]: остаток '+r.item.qty+' шт, темп '+fmtD(r.item.avgPerMonth)+' шт/мес, запаса на '+fmtD(r.item.coverMonths)+' мес');
+    });
+  }
+  // Часть 4: что продаётся лучше всего — для сравнения
+  var top=rows.filter(function(r){return (r.item.soldQty||0)>0;})
+    .sort(function(a,b){return (b.item.soldRev||0)-(a.item.soldRev||0);}).slice(0,10);
+  if(top.length){
+    lines.push('','ЛУЧШИЕ ПО ВЫРУЧКЕ:');
+    top.forEach(function(r){
+      lines.push('- '+r.item.name+' [«'+r.lot.name+'»]: продано '+r.item.soldQty+' шт на '+Math.round(r.item.soldRev)+' тг, осталось '+r.item.qty+' шт');
+    });
+  }
+  return lines.join('\n');
+}
+async function runAiReview(filterLotId){
+  var box=document.getElementById('ai-review-box');
+  if(!box)return;
+  var summary=aiBuildSummary(filterLotId);
+  if(!summary){box.innerHTML='<div style="font-size:11px;color:var(--text3)">Нет данных для разбора</div>';return;}
+  box.innerHTML='<div style="font-size:11px;color:var(--text2)">⏳ Спрашиваю ИИ… (обычно 5–15 секунд)</div>';
+  try{
+    var headers={'apikey':SB_KEY,'Content-Type':'application/json'};
+    var s=await getSB().auth.getSession();
+    if(s&&s.data&&s.data.session)headers['Authorization']='Bearer '+s.data.session.access_token;
+    var r=await fetch(SB_URL+'/functions/v1/ai-review',{
+      method:'POST',headers:headers,
+      body:JSON.stringify({summary:summary,question:'Что здесь важно заметить и что делать в первую очередь?'})
+    });
+    var data=await r.json();
+    if(!r.ok||!data.ok){
+      var m=(data&&data.message)||'не удалось получить разбор';
+      box.innerHTML='<div style="font-size:11px;color:var(--orange)">⚠ '+esc(m)+'</div>';
+      return;
+    }
+    var html=esc(data.text).replace(/\n/g,'<br>');
+    box.innerHTML='<div style="font-size:12px;line-height:1.6;color:var(--text)">'+html+'</div>'+
+      '<div style="font-size:9px;color:var(--text3);margin-top:8px;border-top:1px solid var(--border);padding-top:6px">'+
+      'Это мнение ИИ, а не расчёт программы — проверяйте по цифрам. Модель: '+esc(data.model||'—')+'</div>';
+  }catch(e){
+    box.innerHTML='<div style="font-size:11px;color:var(--orange)">⚠ Нет связи с сервисом разбора</div>';
+  }
+}
+function aiReviewBlock(filterLotId){
+  return '<div style="background:linear-gradient(135deg,#1a2d50,#1a1a3d);border:1px solid var(--accent2);border-radius:10px;padding:12px 14px;margin-bottom:12px">'+
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'+
+    '<div style="font-size:12px;font-weight:700;color:var(--accent2)">🤖 Разбор от ИИ</div>'+
+    '<div style="font-size:10px;color:var(--text3)">второе мнение к машинным рекомендациям</div>'+
+    '<button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="runAiReview('+(filterLotId?("'"+filterLotId+"'"):'')+')">Запросить разбор</button></div>'+
+    '<div id="ai-review-box"><div style="font-size:11px;color:var(--text3)">Программа считает по формулам; ИИ смотрит на ту же картину целиком и может заметить то, чего в строках не видно — перекосы по размерам, связь между партиями, риски сроков.</div></div>'+
+    '</div>';
+}
+
 // ===== ИНТЕГРАЦИЯ С 1С (товарный API) =====
 // Данные из API приводятся к тому же виду, что дают парсеры выгрузок Excel,
 // поэтому вся существующая логика лотов работает без изменений.
@@ -4461,6 +4551,7 @@ function renderRecos(){
   var total=r.deepen.length+r.liquidate.length+r.promo.length+r.perm.length+(r.priceUp?r.priceUp.length:0);
   if(total===0){el.innerHTML='<div class="empty-state"><div style="font-size:40px">✅</div><div>Всё отработано — рекомендаций нет</div><div style="font-size:11px">Загрузите свежие продажи, чтобы обновить</div></div>';return;}
   var html='';
+  html+=aiReviewBlock(filterLotId);
   // Сводка
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">'+
     (r.deepen.length?'<div class="stat-card" style="border-color:var(--red)"><div class="stat-lbl" style="color:var(--red)">📉 Углубить</div><div class="stat-val" style="color:var(--red)">'+r.deepen.length+'</div></div>':'')+
