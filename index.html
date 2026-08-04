@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v76</title>
+<title>FBSM — Управление лотами v77</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -169,7 +169,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v76</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v77</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -3700,6 +3700,154 @@ function renderHelp(){
   el.innerHTML=html;
 }
 
+
+// ===== ИНТЕГРАЦИЯ С 1С (товарный API) =====
+// Данные из API приводятся к тому же виду, что дают парсеры выгрузок Excel,
+// поэтому вся существующая логика лотов работает без изменений.
+// Токен в браузере не хранится: запросы идут через наш прокси, он подставляет токен сам.
+var API_BASE_KEY='fbsm_api_base';
+function apiBase(){try{return localStorage.getItem(API_BASE_KEY)||'';}catch(e){return '';}}
+function setApiBase(url){try{localStorage.setItem(API_BASE_KEY,(url||'').replace(/\/+$/,''));}catch(e){}}
+
+async function apiGet(path,params){
+  var base=apiBase();
+  if(!base)throw new Error('Не задан адрес подключения к 1С (Настройки → Обмен с 1С)');
+  var url=base+path;
+  var qs=[];
+  Object.keys(params||{}).forEach(function(k){if(params[k]!==undefined&&params[k]!==null&&params[k]!=='')qs.push(encodeURIComponent(k)+'='+encodeURIComponent(params[k]));});
+  if(qs.length)url+='?'+qs.join('&');
+  var headers={};
+  // Прокси проверяет, что запрос от вошедшего пользователя
+  try{
+    var s=await getSB().auth.getSession();
+    if(s&&s.data&&s.data.session)headers['Authorization']='Bearer '+s.data.session.access_token;
+  }catch(e){}
+  var r=await fetch(url,{headers:headers});
+  var txt=await r.text();
+  var data=null;try{data=JSON.parse(txt);}catch(e){}
+  if(!r.ok){
+    var code=(data&&data.error)||('HTTP '+r.status);
+    var msg={
+      UNAUTHORIZED:'Прокси не принял запрос: нет доступа',
+      GOODS_TOKEN_NOT_CONFIGURED:'Обмен с 1С ещё не включён на стороне 1С',
+      COST_NOT_EXPOSED:'Закупочные цены закрыты на стороне 1С',
+      UNKNOWN_PRICE_TYPE:'Неизвестный вид цены',
+      DATE_RANGE_TOO_LARGE:'Слишком длинный период запроса (максимум 400 дней)'
+    }[code]||('Ошибка обмена: '+code);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+// --- Приведение ответов API к формату парсеров ---
+// Позиция в программе = наименование номенклатуры; характеристики и склады суммируются
+// (так же, как это делали выгрузки Excel).
+function apiBuildCatalogIndex(catalog){
+  var byId={};
+  (catalog&&catalog.items||[]).forEach(function(it){
+    // Партия = непосредственная группа товара («DKF», «TOFFEE»), а не корень пути:
+    // корень у всех общий («Одежда»), по нему весь товар слился бы в один лот.
+    // Полный путь сохраняем — по нему ищем соответствие существующим лотам на любом уровне.
+    var path=it.group_path||[];
+    var group=it.group_name||(path.length?path[path.length-1]:'');
+    byId[it.id]={name:it.name,group:group,groupPath:path,active:it.is_active!==false};
+  });
+  return byId;
+}
+// Лот, которому принадлежит группа: совпадение с sourceGroups на любом уровне пути
+function apiFindLotForGroup(group,path){
+  var candidates=[group].concat(path||[]);
+  for(var i=0;i<lots.length;i++){
+    var src=lots[i].sourceGroups||[];
+    for(var j=0;j<candidates.length;j++){
+      if(candidates[j]&&src.indexOf(candidates[j])>=0)return lots[i];
+    }
+  }
+  // Запасной вариант — по названию лота
+  for(var k=0;k<lots.length;k++){
+    if(candidates.indexOf(lots[k].name)>=0)return lots[k];
+  }
+  return null;
+}
+// Остатки: {наименование: {name,char,key,qty}} — как отдаёт parseStock
+function apiToStockMap(catalog,stock){
+  var idx=apiBuildCatalogIndex(catalog),map={};
+  (stock&&stock.rows||[]).forEach(function(r){
+    var c=idx[r.product_id];if(!c)return;
+    var qty=Number(r.qty)||0;
+    if(qty<=0)return;                       // отрицательные и нулевые в расчёт остатка не берём
+    if(map[c.name])map[c.name].qty+=qty;
+    else map[c.name]={name:c.name,char:'',key:c.name,qty:qty};
+  });
+  return map;
+}
+// Позиции с отрицательным остатком в 1С — показываем отдельно, это повод разобраться
+function apiNegativeStock(catalog,stock){
+  var idx=apiBuildCatalogIndex(catalog),out=[];
+  (stock&&stock.rows||[]).forEach(function(r){
+    if((Number(r.qty)||0)<0){var c=idx[r.product_id];out.push({name:c?c.name:r.product_id,qty:Number(r.qty),warehouse:r.warehouse_name||''});}
+  });
+  return out;
+}
+// Цены: {наименование: цена} — как отдаёт parsePrice.
+// На наименование берём максимальную цену среди характеристик: программа ведёт
+// одну цену на позицию, а занижение исказило бы маржу в оптимистичную сторону.
+function apiToPriceMap(catalog,prices){
+  var idx=apiBuildCatalogIndex(catalog),map={};
+  (prices&&prices.rows||[]).forEach(function(r){
+    var c=idx[r.product_id];if(!c)return;
+    var p=Number(r.price)||0;if(p<=0)return;
+    if(!map[c.name]||p>map[c.name])map[c.name]=p;
+  });
+  return map;
+}
+// Продажи: {sales:{наименование:{weeks,soldQty,soldRev}},weeks:[метки]} — как parseSales.
+// Метки недель переводим в формат программы «дд.мм.гггг».
+function isoToWeekLabel(iso){
+  var m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m?(m[3]+'.'+m[2]+'.'+m[1]):String(iso||'');
+}
+function apiToSalesData(catalog,sales){
+  var idx=apiBuildCatalogIndex(catalog);
+  var weekKeys=(sales&&sales.weeks||[]).slice().sort();
+  var labels=weekKeys.map(isoToWeekLabel);
+  var byName={};
+  (sales&&sales.rows||[]).forEach(function(r){
+    var c=idx[r.product_id];if(!c)return;
+    var lbl=isoToWeekLabel(r.week);
+    var qty=(Number(r.qty)||0)-(Number(r.returns_qty)||0);              // возвраты вычитаем
+    var rev=(Number(r.amount_with_discount)||0)-(Number(r.returns_amount)||0);
+    if(!byName[c.name])byName[c.name]={weeks:{},soldQty:0,soldRev:0,listAmount:0};
+    var b=byName[c.name];
+    if(!b.weeks[lbl])b.weeks[lbl]={label:lbl,qty:0,rev:0};
+    b.weeks[lbl].qty+=qty;b.weeks[lbl].rev+=rev;
+    b.soldQty+=qty;b.soldRev+=rev;
+    b.listAmount+=(Number(r.amount_without_discount)||0);               // сумма по прайсу — для факт. скидки
+  });
+  var out={};
+  Object.keys(byName).forEach(function(name){
+    var b=byName[name];
+    var weeks=labels.map(function(l){return b.weeks[l]||{label:l,qty:0,rev:0};});
+    out[name]={weeks:weeks,soldQty:b.soldQty,soldRev:b.soldRev,listAmount:b.listAmount};
+  });
+  return {sales:out,weeks:labels};
+}
+// Группы верхнего уровня с составом — как parseGroupedStock (для раскладки по лотам)
+function apiToGroups(catalog,stock){
+  var idx=apiBuildCatalogIndex(catalog),byGroup={};
+  (stock&&stock.rows||[]).forEach(function(r){
+    var c=idx[r.product_id];if(!c)return;
+    var qty=Number(r.qty)||0;if(qty<=0)return;
+    var g=c.group||'Без группы';
+    if(!byGroup[g])byGroup[g]={group:g,path:c.groupPath||[],total:0,items:{}};
+    byGroup[g].total+=qty;
+    byGroup[g].items[c.name]=(byGroup[g].items[c.name]||0)+qty;
+  });
+  return Object.keys(byGroup).map(function(g){
+    var o=byGroup[g];
+    return {group:g,path:o.path,total:o.total,items:Object.keys(o.items).map(function(n){return {name:n,qty:o.items[n]};})};
+  });
+}
 
 // ===== ОТЧЁТ СОБСТВЕННИКУ =====
 // Одна страница про деньги: сколько вложено, сколько вернулось, что в работе,
