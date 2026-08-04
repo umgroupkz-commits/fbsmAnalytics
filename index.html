@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v72</title>
+<title>FBSM — Управление лотами v73</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -155,7 +155,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v72</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v73</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -1942,7 +1942,21 @@ async function initFromSupabase(){
     promos.forEach(function(p){if(Array.isArray(p.items))p.items.forEach(function(it){if(!it.lotId)it.lotId=p.lotId;});});
     localStorage.setItem(LS_PROMOS,JSON.stringify(promos));
   }
-  showSyncStatus('');renderAnalytics();checkPromoExpiry();updateRecosBadge();
+  showSyncStatus('');
+  bumpDataVersion();          // данные из облака пришли — кэш «Товаров» устарел
+  renderActivePage();         // перерисовать ту вкладку, что открыта сейчас,
+                              // иначе открытая до загрузки вкладка осталась бы пустой
+  checkPromoExpiry();updateRecosBadge();
+}
+// Перерисовать текущую открытую вкладку (какой бы она ни была)
+function renderActivePage(){
+  var active=document.querySelector('.page.active');
+  var id=active?active.id.replace('page-',''):'analytics';
+  if(id==='goods')renderGoods();
+  else if(id==='recos')renderRecos();
+  else if(id==='promos')renderPromos();
+  else if(id==='help')renderHelp();
+  else renderAnalytics();
 }
 
 // Check expired promos and notify
