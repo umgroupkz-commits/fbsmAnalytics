@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v74</title>
+<title>FBSM — Управление лотами v75</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -155,7 +155,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v74</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v75</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -2222,6 +2222,7 @@ function buUpdateSummary(){
   document.getElementById('bu-btn').style.display=ready?'flex':'none';
 }
 function applyBatchUpdate(){
+  if(!loadSnapshot())saveSnapshot();   // первая загрузка задаёт точку отсчёта для «что изменилось»
   var np=document.getElementById('bu-new-positions').checked;
   // Групповой разбор остатков (если есть файл) — чтобы знать группы верхнего уровня
   var groups=null;
@@ -2750,6 +2751,7 @@ function updUpdateSummary(){
 }
 function applyUpdate(){
   var l=getLot(updDraft.lotId);if(!l)return;
+  if(!loadSnapshot())saveSnapshot();   // первая загрузка задаёт точку отсчёта для «что изменилось»
   var newPos=document.getElementById('upd-new-positions').checked;
   var newCost=numFromInput('upd-cost',{min:0,def:l.cost});
   var newTotal=numFromInput('upd-total-units',{int:true,min:0,max:10000000,def:l.totalUnits||0});
@@ -2965,6 +2967,33 @@ function saveGroupNew(){
   if(!name){alert('Введите название папки');return;}
   setGroupFor(name);
 }
+// Короткий вывод по лоту одной строкой: что происходит и успеваем ли.
+// Чтобы понять положение дел, не открывая лот и не читая цифры глазами.
+function lotVerdict(l,m){
+  var remain=m.remainQty;
+  if(l.status==='closed')return {t:'Лот закрыт',c:'var(--text3)'};
+  if(remain<=0)return {t:'Распродан полностью'+(m.recovery>=100?', окупился':', не окупился'),c:m.recovery>=100?'var(--green)':'var(--orange)'};
+  // Успеваем ли распродать остаток к дедлайну по текущему темпу
+  var tempo=(l.items||[]).reduce(function(s,i){return s+(i.effAvgMonth||i.avgPerMonth||0);},0);
+  var forecast=tempo>0?(remain/tempo):null;
+  var sellBy=l.sellBy||CFG.seasonEnd||'';
+  var monthsLeft=sellBy?Math.max(0,(new Date(sellBy)-new Date())/MS_PER_MONTH):null;
+  // Без дедлайна сравнивать не с чем — тогда судим по самому сроку распродажи,
+  // иначе «разойдётся за 72 месяца» читалось бы как «идём по графику»
+  var SLOW_MONTHS=12;
+  if(m.recovery>=100){
+    if(forecast===null)return {t:'Окупился, остаток стоит без продаж — можно сливать в плюс',c:'var(--yellow)'};
+    if(monthsLeft!==null&&forecast>monthsLeft)return {t:'Окупился, но остаток не успевает: '+fmtD(forecast)+' мес против '+fmtD(monthsLeft)+' — остаток уже в прибыль, можно сливать смелее',c:'var(--yellow)'};
+    if(monthsLeft===null&&forecast>SLOW_MONTHS)return {t:'Окупился, но остаток расходится очень медленно (~'+fmtD(forecast)+' мес) — стоит задать «продать до» или сливать',c:'var(--yellow)'};
+    return {t:'Окупился, остаток расходится за ~'+fmtD(forecast)+' мес'+(monthsLeft!==null?' — в срок':''),c:'var(--green)'};
+  }
+  if(forecast===null)return {t:'Не окупился ('+pct(m.recovery)+') и продаж нет — нужны действия',c:'var(--red)'};
+  if(monthsLeft!==null&&forecast>monthsLeft)
+    return {t:'Не успевает окупиться: остаток разойдётся за '+fmtD(forecast)+' мес, до дедлайна '+fmtD(monthsLeft)+' — нужны скидки или акции',c:'var(--red)'};
+  if(monthsLeft===null&&forecast>SLOW_MONTHS)
+    return {t:'Окупаемость '+pct(m.recovery)+', но остаток расходится очень медленно (~'+fmtD(forecast)+' мес) — нужны скидки',c:'var(--orange)'};
+  return {t:'Окупаемость '+pct(m.recovery)+', идёт по графику (~'+fmtD(forecast)+' мес до распродажи)',c:'var(--text2)'};
+}
 // HTML одной карточки лота (вынесено для переиспользования в папках)
 function lotCardHtml(l){
   enrichItems(l.items,l.date,l.secondSeason,l.sellBy);
@@ -2977,6 +3006,7 @@ function lotCardHtml(l){
     '<div style="display:flex;align-items:flex-start;gap:8px">'+
     '<div style="flex:1"><div style="font-size:13px;font-weight:600;margin-bottom:2px">'+esc(l.name)+'</div>'+
     '<div style="font-size:10px;color:var(--text3)">'+esc(l.supplier||'—')+' · '+(l.date||'—')+' · '+fmt(l.cost)+' ₸'+(l.totalUnits?' · '+fmt(l.totalUnits)+' шт лот':'')+' · обновлён '+upd+'</div></div>'+badge+'</div>'+
+    (function(){var v=lotVerdict(l,m);return '<div style="font-size:11px;color:'+v.c+';margin-top:6px;font-weight:500">'+esc(v.t)+'</div>';})()+
     '<div class="lot-metrics">'+
     '<div class="lot-metric"><div class="lot-metric-lbl">Продано / оприход.</div><div class="lot-metric-val">'+m.soldQty+' / '+m.totalQty+' <span style="font-size:9px;color:var(--text3)">'+pct(m.soldPct)+'</span></div></div>'+
     '<div class="lot-metric"><div class="lot-metric-lbl">Остаток</div><div class="lot-metric-val">'+m.remainQty+' шт</div></div>'+
@@ -3651,6 +3681,77 @@ function renderHelp(){
   el.innerHTML=html;
 }
 
+
+// ===== «ЧТО ИЗМЕНИЛОСЬ С ПРОШЛОЙ ЗАГРУЗКИ» =====
+// Снимок ключевых цифр делается при каждой загрузке данных. Следующая загрузка
+// сравнивается с ним — и программа сама рассказывает, что произошло,
+// вместо того чтобы заставлять искать это глазами.
+var SNAP_KEY=SANDBOX?'sandbox_fbsm_snapshot':'fbsm_snapshot';
+function captureSnapshot(){
+  var snap={at:new Date().toISOString(),lots:{}};
+  lots.forEach(function(l){
+    if(l.status==='closed')return;
+    var m=metrics(l);
+    var items={};
+    (l.items||[]).forEach(function(i){items[i.id]={q:i.qty||0,s:i.soldQty||0};});
+    snap.lots[l.id]={name:l.name,sold:m.soldQty,rev:m.factRev,remain:m.remainQty,recovery:m.recovery,items:items};
+  });
+  return snap;
+}
+function saveSnapshot(){try{localStorage.setItem(SNAP_KEY,JSON.stringify(captureSnapshot()));}catch(e){console.warn('снимок не сохранён',e);}}
+function loadSnapshot(){try{var s=localStorage.getItem(SNAP_KEY);return s?JSON.parse(s):null;}catch(e){return null;}}
+// Сравнение текущего состояния с сохранённым снимком
+function buildChangeReport(){
+  var prev=loadSnapshot();if(!prev||!prev.lots)return null;
+  var cur=captureSnapshot();
+  var rep={since:prev.at,soldDelta:0,revDelta:0,lotsChanged:[],becameRecovered:[],soldOut:[],newProblems:0,newItems:0};
+  Object.keys(cur.lots).forEach(function(id){
+    var c=cur.lots[id],p=prev.lots[id];
+    if(!p){rep.lotsChanged.push({name:c.name,isNew:true,sold:c.sold,rev:c.rev});return;}
+    var ds=c.sold-p.sold, dr=c.rev-p.rev;
+    if(ds!==0||dr!==0){
+      rep.soldDelta+=ds;rep.revDelta+=dr;
+      rep.lotsChanged.push({name:c.name,sold:ds,rev:dr,recovery:c.recovery,recoveryDelta:c.recovery-p.recovery});
+    }
+    if(p.recovery<100&&c.recovery>=100)rep.becameRecovered.push(c.name);
+    // Позиции, которые закончились за это время
+    Object.keys(c.items).forEach(function(iid){
+      var ci=c.items[iid],pi=p.items?p.items[iid]:null;
+      if(!pi){rep.newItems++;return;}
+      if(pi.q>0&&ci.q===0)rep.soldOut.push(c.name);
+    });
+  });
+  rep.lotsChanged.sort(function(a,b){return (b.rev||0)-(a.rev||0);});
+  rep.hasChanges=rep.lotsChanged.length>0||rep.becameRecovered.length>0;
+  return rep;
+}
+function renderChangeBlock(){
+  var rep=buildChangeReport();
+  if(!rep)return '';
+  if(!rep.hasChanges){
+    return '<div style="background:var(--surface2);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:11px;color:var(--text3)">'+
+      'С прошлой загрузки ('+String(rep.since).slice(0,10)+') изменений в продажах нет.</div>';
+  }
+  var lines='';
+  rep.lotsChanged.slice(0,6).forEach(function(x){
+    if(x.isNew){lines+='<div style="font-size:11px;padding:2px 0">🆕 <b>'+esc(x.name)+'</b> — новый лот, продано '+fmt(x.sold)+' шт на '+fmt(x.rev)+' ₸</div>';return;}
+    var arrow=x.sold>0?'↑':'↓';
+    lines+='<div style="font-size:11px;padding:2px 0">'+arrow+' <b>'+esc(x.name)+'</b> — продано '+(x.sold>0?'+':'')+fmt(x.sold)+' шт на '+(x.rev>0?'+':'')+fmt(x.rev)+' ₸'+
+      (Math.abs(x.recoveryDelta)>=0.5?' · окупаемость '+pct(x.recovery)+' <span style="color:'+(x.recoveryDelta>0?'var(--green)':'var(--red)')+'">('+(x.recoveryDelta>0?'+':'')+x.recoveryDelta.toFixed(1)+' пп)</span>':'')+'</div>';
+  });
+  if(rep.lotsChanged.length>6)lines+='<div style="font-size:10px;color:var(--text3);padding-top:2px">…и ещё '+(rep.lotsChanged.length-6)+' лотов</div>';
+  var extra='';
+  if(rep.becameRecovered.length)extra+='<div style="font-size:11px;color:var(--green);margin-top:6px">✅ Окупились: <b>'+rep.becameRecovered.map(esc).join(', ')+'</b></div>';
+  if(rep.soldOut.length)extra+='<div style="font-size:11px;color:var(--text2);margin-top:4px">📦 Позиций распродано полностью: '+rep.soldOut.length+'</div>';
+  if(rep.newItems)extra+='<div style="font-size:11px;color:var(--text2);margin-top:4px">➕ Новых позиций оприходовано: '+rep.newItems+'</div>';
+  return '<div style="background:linear-gradient(135deg,#1a2d50,#1a1a3d);border:1px solid var(--accent);border-radius:10px;padding:12px 14px;margin-bottom:12px">'+
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+
+    '<div style="font-size:12px;font-weight:700;color:var(--accent)">📈 Что изменилось с прошлой загрузки</div>'+
+    '<div style="font-size:10px;color:var(--text3)">с '+String(rep.since).slice(0,10)+'</div>'+
+    '<button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:9px" onclick="saveSnapshot();renderAnalytics()" title="Считать текущее состояние точкой отсчёта">Отметить как просмотренное</button></div>'+
+    '<div style="font-size:12px;margin-bottom:6px">Всего продано <b style="color:var(--green)">+'+fmt(rep.soldDelta)+' шт</b> на <b style="color:var(--accent)">+'+fmt(rep.revDelta)+' ₸</b></div>'+
+    lines+extra+'</div>';
+}
 
 // ===== ВКЛАДКА «ТОВАРЫ» — общий анализ всех позиций всех лотов =====
 // Смысл: ежедневную работу видно целиком, без захода в каждый лот.
@@ -4870,6 +4971,7 @@ function renderAnalytics(){
   if(!lots.length){el.innerHTML=headerBtn+'<div class="empty-state"><div style="font-size:40px">📦</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">Нет лотов</div><div style="font-size:12px">Нажмите «Новый лот»</div></div>';return;}
   lots.forEach(function(l){enrichItems(l.items,l.date,l.secondSeason,l.sellBy);});
   updateRecosBadge();var html=headerBtn+
+    renderChangeBlock()+
     '<div class="section-title" style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--text2)">Лоты ('+lots.length+')</div>';
   // Разбить на папки: {имя → [лоты]}, без папки — отдельно
   var grouped={},ungrouped=[];
