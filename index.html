@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v80</title>
+<title>FBSM — Управление лотами v81</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -169,7 +169,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v80</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v81</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -3994,12 +3994,17 @@ async function renderApiExchange(){
 function apiBuildCatalogIndex(catalog){
   var byId={};
   (catalog&&catalog.items||[]).forEach(function(it){
-    // Партия = непосредственная группа товара («DKF», «TOFFEE»), а не корень пути:
-    // корень у всех общий («Одежда»), по нему весь товар слился бы в один лот.
-    // Полный путь сохраняем — по нему ищем соответствие существующим лотам на любом уровне.
+    // Партия = ПЕРВЫЙ элемент пути: проверено на живых данных 1С — там верхний
+    // уровень назван по поставкам («Pro-Specs обувь», «Mind Bridge», «TOFFEE»),
+    // а внутри бывают подгруппы («FBSM KOREA → FBSM KOREA DRESS»), которые
+    // дробить на отдельные лоты нельзя. Часть товаров лежит в корне без папки.
     var path=it.group_path||[];
-    var group=it.group_name||(path.length?path[path.length-1]:'');
-    byId[it.id]={name:it.name,group:group,groupPath:path,active:it.is_active!==false};
+    var group=(path.length?path[0]:'')||it.group_name||'';
+    // Имя нормализуем так же, как это делали парсеры выгрузок (cleanCell):
+    // в 1С встречаются двойные и неразрывные пробелы («DOWN  (пух) жилет»),
+    // а в уже заведённых лотах позиции записаны в схлопнутом виде.
+    // Без этого те же товары пришли бы как новые позиции и задвоились.
+    byId[it.id]={name:cleanCell(it.name),group:cleanCell(group),groupPath:path.map(cleanCell),active:it.is_active!==false};
   });
   return byId;
 }
