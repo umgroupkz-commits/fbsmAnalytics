@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v73</title>
+<title>FBSM — Управление лотами v74</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -155,7 +155,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v73</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v74</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -1469,6 +1469,103 @@ function enrichItems(items,lotDate,secondSeason,lotSellBy){
 // ===== DISCOUNT ENGINE =====
 
 // Обучение на акциях: средний коэффициент ускорения по факту прошедших акций
+// ===== ОЦЕНКА РЕЗУЛЬТАТИВНОСТИ АКЦИИ =====
+// Считается по понедельным продажам самих позиций: темп ДО акции, ВО ВРЕМЯ и ПОСЛЕ.
+// Это честнее, чем «продано N штук»: N само по себе не говорит, помогла ли скидка.
+var PROMO_EVAL_WINDOW=4;        // сколько недель берём до и после акции для сравнения
+var PROMO_WORKED_BOOST=1.5;     // рост темпа в 1.5 раза и выше — акция сработала
+var PROMO_WEAK_BOOST=1.2;       // ниже 1.2 — прироста фактически не было
+var PROMO_HANGOVER=0.6;         // темп после акции ниже 60% от прежнего — выбрали спрос вперёд
+
+function weeksInRange(weeks,fromISO,toISO){
+  return (weeks||[]).filter(function(w){
+    var k=weekKey(w.label);
+    if(fromISO&&k<fromISO)return false;
+    if(toISO&&k>toISO)return false;
+    return true;
+  });
+}
+// Оценка одной позиции акции
+function evalPromoItem(item,startISO,endISO){
+  var wk=(item.weeks||[]).slice().sort(function(a,b){return weekKey(a.label)<weekKey(b.label)?-1:1;});
+  var before=wk.filter(function(w){return weekKey(w.label)<startISO;}).slice(-PROMO_EVAL_WINDOW);
+  var during=weeksInRange(wk,startISO,endISO);
+  var after=wk.filter(function(w){return weekKey(w.label)>endISO;}).slice(0,PROMO_EVAL_WINDOW);
+  function rate(arr){return arr.length?arr.reduce(function(s,w){return s+(w.qty||0);},0)/arr.length:null;}
+  var rBefore=rate(before),rDuring=rate(during),rAfter=rate(after);
+  var soldDuring=during.reduce(function(s,w){return s+(w.qty||0);},0);
+  var revDuring=during.reduce(function(s,w){return s+(w.rev||0);},0);
+  var boost=(rBefore!==null&&rBefore>0&&rDuring!==null)?(rDuring/rBefore):null;
+  var verdict,note;
+  if(rDuring===null||!during.length){
+    verdict='nodata';note='Нет продаж за период акции в данных — загрузите свежие продажи';
+  } else if(rBefore===null||rBefore===0){
+    verdict=soldDuring>0?'revived':'nodata';
+    note=soldDuring>0?('До акции продаж не было вовсе, во время — '+soldDuring+' шт: скидка сдвинула мёртвый товар'):'Продаж не было ни до, ни во время акции';
+  } else if(boost>=PROMO_WORKED_BOOST){
+    if(rAfter!==null&&rBefore>0&&rAfter<rBefore*PROMO_HANGOVER){
+      verdict='hangover';note='Во время акции темп вырос в '+boost.toFixed(1)+' раза, но после упал до '+Math.round(rAfter/rBefore*100)+'% от прежнего: скидка выбрала будущий спрос';
+    } else {
+      verdict='worked';note='Темп вырос в '+boost.toFixed(1)+' раза ('+fmtD(rBefore)+' → '+fmtD(rDuring)+' шт/нед)';
+    }
+  } else if(boost<PROMO_WEAK_BOOST){
+    verdict='failed';note='Темп практически не изменился ('+fmtD(rBefore)+' → '+fmtD(rDuring)+' шт/нед): срочность не работает';
+  } else {
+    verdict='weak';note='Рост слабый, в '+boost.toFixed(1)+' раза ('+fmtD(rBefore)+' → '+fmtD(rDuring)+' шт/нед)';
+  }
+  return {verdict:verdict,note:note,boost:boost,rateBefore:rBefore,rateDuring:rDuring,rateAfter:rAfter,
+          soldDuring:soldDuring,revDuring:revDuring,weeksDuring:during.length,remain:Math.max(item.qty||0,0)};
+}
+// Оценка акции целиком + что делать дальше
+function evaluatePromo(p){
+  if(!p||!Array.isArray(p.items)||!p.items.length)return null;
+  var startISO=(p.startDate||'').slice(0,10);
+  var endISO=(p.endDate||'').slice(0,10)||new Date().toISOString().slice(0,10);
+  if(!startISO)return null;
+  var rows=[],cnt={worked:0,revived:0,weak:0,failed:0,hangover:0,nodata:0};
+  p.items.forEach(function(pi){
+    var res=resolvePromoItem(pi);if(!res)return;
+    var ev=evalPromoItem(res.item,startISO,endISO);
+    ev.item=res.item;ev.lot=res.lot;ev.discPct=pi.discPct||0;
+    cnt[ev.verdict]++;rows.push(ev);
+  });
+  if(!rows.length)return null;
+  var good=cnt.worked+cnt.revived, bad=cnt.failed+cnt.hangover, weak=cnt.weak, known=rows.length-cnt.nodata;
+  var totalSold=rows.reduce(function(s,r){return s+r.soldDuring;},0);
+  var totalRev=rows.reduce(function(s,r){return s+r.revDuring;},0);
+  var overall,advice;
+  if(known===0){
+    overall='nodata';
+    advice='Продаж за период акции в данных нет. Загрузите свежие продажи из 1С — после этого оценка появится сама.';
+  } else if(good>=known*0.5){
+    overall='worked';
+    advice='Акция сработала на '+good+' из '+known+' позиций. Что дальше: у позиций с большим остатком скидку можно сделать постоянной, а сам приём повторить на похожем товаре.';
+    if(cnt.hangover)advice+=' Но по '+cnt.hangover+' позициям спрос выбран вперёд — их повторять не стоит.';
+  } else if(cnt.failed>=known*0.5){
+    overall='failed';
+    advice='Акция не сработала на '+cnt.failed+' из '+known+' позиций: срочность на этот товар не действует. Что дальше: не повторять акцию, а ставить постоянную скидку глубже или сливать остаток.';
+  } else if(weak>=known*0.5){
+    overall='mixed';
+    advice='Эффект слабый: на '+weak+' из '+known+' позиций темп вырос меньше чем в полтора раза. Скидка такого размера спрос почти не двигает. Что дальше: либо скидка глубже, либо не тратить на эти позиции акцию — вести постоянной скидкой.';
+  } else {
+    overall='mixed';
+    var parts=[];
+    if(good)parts.push('сработало '+good);
+    if(weak)parts.push('слабый эффект у '+weak);
+    if(cnt.failed)parts.push('без эффекта '+cnt.failed);
+    if(cnt.hangover)parts.push('выбрали спрос вперёд у '+cnt.hangover);
+    overall='mixed';
+    advice='Результат неоднородный ('+parts.join(', ')+' из '+known+'). Что дальше: повторять только на сработавших позициях, остальные вести постоянной скидкой или сливать.';
+  }
+  return {rows:rows,counts:cnt,overall:overall,advice:advice,totalSold:totalSold,totalRev:totalRev,
+          startISO:startISO,endISO:endISO,known:known};
+}
+var PROMO_VERDICT_LABEL={
+  worked:{t:'сработала',c:'var(--green)'},revived:{t:'оживила товар',c:'var(--green)'},
+  weak:{t:'слабый эффект',c:'var(--yellow)'},failed:{t:'не сработала',c:'var(--red)'},
+  hangover:{t:'выбрала спрос вперёд',c:'var(--orange)'},nodata:{t:'нет данных',c:'var(--text3)'}
+};
+
 function getLearnedBoost(discPct){
   // Собираем результаты завершённых акций со всех лотов
   var samples=[];
@@ -4233,7 +4330,14 @@ function renderPromos(){
       statusBadge+'</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
       '<span style="font-size:11px;color:var(--text2)">'+p.items.length+' позиций</span>'+
-      (p.results?'<span style="font-size:10px;color:var(--green)">✓ продано '+p.results.totalQty+' шт на '+fmt(p.results.totalRev)+' ₸</span>':'')+
+      (function(){
+        // Краткий итог оценки — виден прямо в списке, без захода в акцию
+        var ev=evaluatePromo(p);
+        if(!ev||ev.overall==='nodata')return '';
+        var h={worked:{t:'✅ сработала',c:'var(--green)'},failed:{t:'❌ не сработала',c:'var(--red)'},mixed:{t:'🟡 неоднородно',c:'var(--yellow)'}}[ev.overall];
+        return '<span style="font-size:10px;color:'+h.c+';font-weight:600">'+h.t+'</span>'+
+               '<span style="font-size:10px;color:var(--text3)">продано '+ev.totalSold+' шт на '+fmt(ev.totalRev)+' ₸</span>';
+      })()+
       (isExpired?'<span style="font-size:10px;color:var(--red);margin-left:auto">⏰ Срок истёк — завершите или продлите</span>':'')+
       '</div></div>';
   });
@@ -4481,19 +4585,50 @@ function renderPromoDetail(){
   var resultsBlock='';
   if(p.results){
     resultsBlock='<div style="background:var(--bg-green);border:1px solid var(--green);border-radius:8px;padding:12px;margin-bottom:12px">'+
-      '<div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:6px">📊 Результаты акции</div>'+
+      '<div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:6px">📊 Результаты акции (из загруженного файла)</div>'+
       '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px">'+
       '<div><span style="color:var(--text3)">Продано:</span> <b>'+p.results.totalQty+' шт</b></div>'+
       '<div><span style="color:var(--text3)">Выручка:</span> <b style="color:var(--accent)">'+fmt(p.results.totalRev)+' ₸</b></div>'+
       '<div><span style="color:var(--text3)">Позиций сработало:</span> <b>'+Object.keys(p.results.byItem||{}).length+' из '+p.items.length+'</b></div>'+
       '</div></div>';
   }
+  // Оценка результативности: считается по понедельным продажам самих позиций
+  var evalBlock='';
+  (function(){
+    var ev=evaluatePromo(p);
+    if(!ev)return;
+    var head={worked:{t:'✅ Акция сработала',c:'var(--green)',bg:'var(--bg-green)'},
+              failed:{t:'❌ Акция не сработала',c:'var(--red)',bg:'var(--bg-red)'},
+              mixed:{t:'🟡 Результат неоднородный',c:'var(--yellow)',bg:'var(--bg-yellow)'},
+              nodata:{t:'⏳ Пока нечего оценивать',c:'var(--text2)',bg:'var(--surface2)'}}[ev.overall];
+    var rows='';
+    ev.rows.sort(function(a,b){return (b.boost||0)-(a.boost||0);}).forEach(function(r){
+      var v=PROMO_VERDICT_LABEL[r.verdict];
+      rows+='<tr><td style="font-weight:500">'+esc(r.item.name)+'</td>'+
+        '<td class="mono" style="text-align:center">−'+r.discPct+'%</td>'+
+        '<td class="mono" style="text-align:right">'+(r.rateBefore!==null?fmtD(r.rateBefore):'—')+'</td>'+
+        '<td class="mono" style="text-align:right;color:var(--accent)">'+(r.rateDuring!==null?fmtD(r.rateDuring):'—')+'</td>'+
+        '<td class="mono" style="text-align:right">'+(r.rateAfter!==null?fmtD(r.rateAfter):'—')+'</td>'+
+        '<td class="mono" style="text-align:right">'+r.soldDuring+'</td>'+
+        '<td class="mono" style="text-align:right">'+r.remain+'</td>'+
+        '<td style="color:'+v.c+';font-size:10px;font-weight:600">'+v.t+'</td>'+
+        '<td style="font-size:10px;color:var(--text2)">'+esc(r.note)+'</td></tr>';
+    });
+    evalBlock='<div style="background:'+head.bg+';border:1px solid '+head.c+';border-radius:8px;padding:12px;margin-bottom:12px">'+
+      '<div style="font-size:12px;font-weight:700;color:'+head.c+';margin-bottom:4px">'+head.t+'</div>'+
+      '<div style="font-size:11px;color:var(--text);line-height:1.5;margin-bottom:8px">'+esc(ev.advice)+'</div>'+
+      '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Продано за период акции: <b style="color:var(--text)">'+ev.totalSold+' шт</b> на <b style="color:var(--text)">'+fmt(ev.totalRev)+' ₸</b> · сравниваются '+PROMO_EVAL_WINDOW+' недели до и после</div>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>Наименование</th><th style="text-align:center">Скидка</th>'+
+      '<th style="text-align:right">До, шт/нед</th><th style="text-align:right">В акции</th><th style="text-align:right">После</th>'+
+      '<th style="text-align:right">Продано</th><th style="text-align:right">Остаток</th><th>Вердикт</th><th>Пояснение</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+  })();
 
   var html='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px">'+
     '<div style="flex:1"><div class="modal-title">'+esc(p.name)+' '+statusBadge+'</div>'+
     '<div style="font-size:11px;color:var(--text2)">'+esc(l.name)+' · '+(p.unlimited?'бессрочно':p.startDate+' → '+p.endDate)+(daysLeft!==null&&daysLeft>=0&&p.status==='active'?' · осталось '+daysLeft+'д':'')+' · '+p.items.length+' позиций</div></div>'+
     '<button class="btn btn-ghost btn-sm" onclick="closeModal(\'modal-promodetail\')"><i class="ti ti-x"></i></button></div>'+
     (isExpired?'<div class="rec-box" style="background:var(--bg-red);border:1px solid var(--red);color:var(--red)"><b>⏰ Срок акции истёк '+p.endDate+'</b> — завершите акцию или продлите с новыми датами.</div>':'')+
+    evalBlock+
     resultsBlock+
     '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
     '<div class="stat-card"><div class="stat-lbl">Остаток позиций</div><div class="stat-val">'+totalRemain+' шт</div></div>'+
