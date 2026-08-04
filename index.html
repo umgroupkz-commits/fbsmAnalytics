@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v77</title>
+<title>FBSM — Управление лотами v78</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -169,7 +169,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v77</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v78</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -461,6 +461,11 @@ tr:hover td{background:#1a2030}
 <!-- MODAL DETAIL -->
 <div id="modal-detail" class="modal-overlay" style="display:none">
   <div class="modal modal-full" id="detail-body"></div>
+</div>
+
+<!-- MODAL API EXCHANGE -->
+<div id="modal-api" class="modal-overlay" style="display:none">
+  <div class="modal" id="api-body" style="max-width:620px"></div>
 </div>
 
 <!-- MODAL OWNER REPORT -->
@@ -3705,8 +3710,11 @@ function renderHelp(){
 // Данные из API приводятся к тому же виду, что дают парсеры выгрузок Excel,
 // поэтому вся существующая логика лотов работает без изменений.
 // Токен в браузере не хранится: запросы идут через наш прокси, он подставляет токен сам.
+// Запросы идут через наш прокси: он проверяет, что пользователь вошёл и есть
+// в белом списке, и сам подставляет токен 1С. В браузере токена нет.
+var API_PROXY=SB_URL+'/functions/v1/goods-proxy';
 var API_BASE_KEY='fbsm_api_base';
-function apiBase(){try{return localStorage.getItem(API_BASE_KEY)||'';}catch(e){return '';}}
+function apiBase(){try{return localStorage.getItem(API_BASE_KEY)||API_PROXY;}catch(e){return API_PROXY;}}
 function setApiBase(url){try{localStorage.setItem(API_BASE_KEY,(url||'').replace(/\/+$/,''));}catch(e){}}
 
 async function apiGet(path,params){
@@ -3716,7 +3724,7 @@ async function apiGet(path,params){
   var qs=[];
   Object.keys(params||{}).forEach(function(k){if(params[k]!==undefined&&params[k]!==null&&params[k]!=='')qs.push(encodeURIComponent(k)+'='+encodeURIComponent(params[k]));});
   if(qs.length)url+='?'+qs.join('&');
-  var headers={};
+  var headers={'apikey':SB_KEY};
   // Прокси проверяет, что запрос от вошедшего пользователя
   try{
     var s=await getSB().auth.getSession();
@@ -3737,6 +3745,63 @@ async function apiGet(path,params){
     throw new Error(msg);
   }
   return data;
+}
+
+// Проверка связи по цепочке: программа → прокси → 1С.
+// Показывает, на каком именно звене остановились, а не общее «не работает».
+async function checkApiConnection(){
+  var res={proxy:null,exchange:null,status:null,error:''};
+  try{
+    var ping=await apiGet('/__ping',{});
+    res.proxy=(ping&&ping.ok)?'ok':'странный ответ';
+  }catch(e){res.proxy='нет связи';res.error=e.message;return res;}
+  try{
+    res.status=await apiGet('/goods/status',{});
+    res.exchange='ok';
+  }catch(e){res.exchange='нет';res.error=e.message;}
+  return res;
+}
+function openApiExchange(){
+  document.getElementById('modal-api').style.display='flex';
+  renderApiExchange();
+}
+async function renderApiExchange(){
+  var el=document.getElementById('api-body');
+  el.innerHTML='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px">'+
+    '<div style="flex:1"><div class="modal-title">Обмен с 1С</div>'+
+    '<div style="font-size:11px;color:var(--text2)">Проверяю связь…</div></div>'+
+    '<button class="btn btn-ghost btn-sm" onclick="closeModal(\'modal-api\')"><i class="ti ti-x"></i></button></div>';
+  var r=await checkApiConnection();
+  function line(name,ok,note){
+    var c=ok===true?'var(--green)':ok===false?'var(--red)':'var(--yellow)';
+    var icon=ok===true?'✓':ok===false?'✕':'…';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">'+
+      '<span style="color:'+c+';font-weight:700;width:14px">'+icon+'</span>'+
+      '<span style="font-size:12px;flex:1">'+name+'</span>'+
+      '<span style="font-size:11px;color:var(--text2)">'+esc(note||'')+'</span></div>';
+  }
+  var st=r.status||{};
+  var html='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px">'+
+    '<div style="flex:1"><div class="modal-title">Обмен с 1С</div>'+
+    '<div style="font-size:11px;color:var(--text2)">Данные о товаре, остатках, ценах и продажах напрямую из учёта</div></div>'+
+    '<button class="btn btn-ghost btn-sm" onclick="renderApiExchange()"><i class="ti ti-refresh"></i> Проверить снова</button>'+
+    '<button class="btn btn-ghost btn-sm" onclick="closeModal(\'modal-api\')"><i class="ti ti-x"></i></button></div>';
+  html+=line('Связь с нашим сервером-посредником', r.proxy==='ok', r.proxy==='ok'?'работает':'не отвечает');
+  html+=line('Обмен с 1С включён', r.exchange==='ok', r.exchange==='ok'?'да':(r.error||'нет'));
+  if(r.exchange==='ok'){
+    html+=line('Данные в 1С свежие', !!st.last_refreshed_at, st.last_refreshed_at?('обновлены '+String(st.last_refreshed_at).slice(0,16).replace('T',' ')):'—');
+    html+=line('Закупочные цены открыты', st.cost_exposed===true, st.cost_exposed===true?'да':'нет — маржа по позициям будет оценочной');
+    html+='<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">'+
+      '<button class="btn btn-primary" onclick="alert(\'Загрузка данных из 1С будет включена после сверки цифр с вашими выгрузками\')"><i class="ti ti-download"></i> Загрузить данные</button></div>';
+  } else {
+    html+='<div class="rec-box" style="background:var(--surface2);margin-top:12px;font-size:11px;line-height:1.6">'+
+      '<b>Что это значит.</b> Программа готова принимать данные, но обмен на стороне 1С ещё не включён — '+
+      'программист сообщал, что ручки отвечают «обмен не настроен». Как только он пришлёт адрес и токен, '+
+      'мы их пропишем на сервере-посреднике, и здесь появится кнопка загрузки.<br><br>'+
+      '<b>Пока обмен не включён</b> данные загружаются файлами, как раньше — «Новый лот» и «Обновить все».'+
+      '</div>';
+  }
+  el.innerHTML=html;
 }
 
 // --- Приведение ответов API к формату парсеров ---
@@ -5257,7 +5322,7 @@ function toggleStatus(id){var l=getLot(id);if(!l)return;l.status=l.status==='clo
 // Экран "Требует внимания" — алерты по всем лотам
 function renderAnalytics(){
   var el=document.getElementById('analytics-content');
-  var headerBtn='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-size:14px;font-weight:600">Лоты и сводная аналитика</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="openOwnerReport()" title="Сводный отчёт по всем лотам: вложено, вернулось, что зависло"><i class="ti ti-report"></i> Отчёт</button><button class="btn btn-ghost btn-sm" onclick="downloadBackup()" title="Скачать резервную копию всех данных"><i class="ti ti-download"></i> Копия</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'restore-file\').click()" title="Восстановить данные из файла копии"><i class="ti ti-upload"></i> Восстановить</button><button class="btn btn-ghost btn-sm" onclick="forceSyncAll()"><i class="ti ti-cloud-upload"></i> Синхронизировать</button><button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i> Настройки</button><button class="btn btn-ghost btn-sm" onclick="openBatchUpdate()"><i class="ti ti-refresh"></i> Обновить все</button><button class="btn btn-primary btn-sm" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button></div></div>';
+  var headerBtn='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-size:14px;font-weight:600">Лоты и сводная аналитика</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="openApiExchange()" title="Обмен данными с 1С"><i class="ti ti-plug-connected"></i> 1С</button><button class="btn btn-ghost btn-sm" onclick="openOwnerReport()" title="Сводный отчёт по всем лотам: вложено, вернулось, что зависло"><i class="ti ti-report"></i> Отчёт</button><button class="btn btn-ghost btn-sm" onclick="downloadBackup()" title="Скачать резервную копию всех данных"><i class="ti ti-download"></i> Копия</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'restore-file\').click()" title="Восстановить данные из файла копии"><i class="ti ti-upload"></i> Восстановить</button><button class="btn btn-ghost btn-sm" onclick="forceSyncAll()"><i class="ti ti-cloud-upload"></i> Синхронизировать</button><button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i> Настройки</button><button class="btn btn-ghost btn-sm" onclick="openBatchUpdate()"><i class="ti ti-refresh"></i> Обновить все</button><button class="btn btn-primary btn-sm" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button></div></div>';
   if(!lots.length){el.innerHTML=headerBtn+'<div class="empty-state"><div style="font-size:40px">📦</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">Нет лотов</div><div style="font-size:12px">Нажмите «Новый лот»</div></div>';return;}
   lots.forEach(function(l){enrichItems(l.items,l.date,l.secondSeason,l.sellBy);});
   updateRecosBadge();var html=headerBtn+
