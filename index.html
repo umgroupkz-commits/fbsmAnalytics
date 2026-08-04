@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v70</title>
+<title>FBSM — Управление лотами v71</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -155,7 +155,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v70</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v71</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -613,6 +613,19 @@ tr:hover td{background:#1a2030}
 var SB_URL = 'https://gginvthrgscpnskftfqk.supabase.co';
 var SB_KEY = 'sb_publishable_nfSHxeshvdTDEwkn82AGuQ_xrZiX4-s';
 
+// ===== ПЕСОЧНИЦА =====
+// Тот же код, отдельные данные: включается на localhost или по ?sandbox=1.
+// В песочнице ничего не пишется в боевое облако и не требуется вход —
+// можно спокойно ломать, проверять и удалять.
+var SANDBOX=(function(){
+  try{
+    var h=location.hostname;
+    return h==='localhost'||h==='127.0.0.1'||h===''||location.search.indexOf('sandbox=1')>=0;
+  }catch(e){return false;}
+})();
+var LS_LOTS   = SANDBOX?'sandbox_fbsm_lots_v5':'fbsm_lots_v5';
+var LS_PROMOS = SANDBOX?'sandbox_fbsm_promos_v1':'fbsm_promos_v1';
+
 // ===== АУТЕНТИФИКАЦИЯ (Supabase Auth) =====
 // Данные в облаке закрыты политиками БД: доступ только вошедшему пользователю
 // из белого списка (таблица app_access). Ключ ниже — публичный, сам по себе
@@ -654,6 +667,18 @@ async function afterLogin(){
   await initFromSupabase();
 }
 async function initAuth(){
+  if(SANDBOX){
+    // Песочница: без входа и без облака, работаем с локальной копией данных
+    showGate(false);
+    document.body.insertAdjacentHTML('afterbegin',
+      '<div style="background:var(--bg-orange);color:var(--orange);border-bottom:1px solid var(--orange);padding:5px 14px;font-size:11px;font-weight:600;text-align:center">'+
+      '🧪 ПЕСОЧНИЦА — данные только на этом компьютере, в облако ничего не уходит'+
+      '<button class="btn btn-ghost btn-sm" style="margin-left:10px" onclick="sandboxLoadFromBackup()">Загрузить копию боевых данных</button>'+
+      '<button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="sandboxClear()">Очистить песочницу</button></div>');
+    var el=document.getElementById('auth-user');if(el)el.textContent='песочница';
+    renderAnalytics();checkPromoExpiry();updateRecosBadge();
+    return;
+  }
   var sess=null;
   try{var s=await getSB().auth.getSession();sess=s&&s.data?s.data.session:null;}catch(e){}
   if(sess){showGate(false);await afterLogin();}
@@ -777,8 +802,8 @@ function fillSettingsForm(){
 function openSettings(){fillSettingsForm();document.getElementById('modal-settings').style.display='flex';}
 
 // ===== STATE =====
-let lots=JSON.parse(localStorage.getItem('fbsm_lots_v5')||'[]');
-let promos=JSON.parse(localStorage.getItem('fbsm_promos_v1')||'[]');
+let lots=JSON.parse(localStorage.getItem(LS_LOTS)||'[]');
+let promos=JSON.parse(localStorage.getItem(LS_PROMOS)||'[]');
 // Миграция: старые акции — проставить lotId каждой позиции из promo.lotId (для мульти-лот поддержки)
 promos.forEach(function(p){if(Array.isArray(p.items))p.items.forEach(function(it){if(!it.lotId)it.lotId=p.lotId;});});
 let draft={stock:null,price:null,sales:null,_items:[],_weeks:[],_totalUnits:0};
@@ -816,8 +841,8 @@ function promoHasLot(p,lotId){if(!lotId)return true;if(p.lotId===lotId)return tr
 let lastCheckedIdx=null;
 let prDraft=null;
 
-function save(){localStorage.setItem('fbsm_lots_v5',JSON.stringify(lots));lots.forEach(function(l){sbUpsert('lots',l.id,l);});}
-function savePromos(){localStorage.setItem('fbsm_promos_v1',JSON.stringify(promos));promos.forEach(function(p){sbUpsert('promos',p.id,p);});}
+function save(){localStorage.setItem(LS_LOTS,JSON.stringify(lots));lots.forEach(function(l){sbUpsert('lots',l.id,l);});}
+function savePromos(){localStorage.setItem(LS_PROMOS,JSON.stringify(promos));promos.forEach(function(p){sbUpsert('promos',p.id,p);});}
 // Экранирование пользовательских строк (имена из 1С, названия лотов/акций, комментарии)
 // перед вставкой в HTML — защита от подмены разметки и выполнения скриптов.
 function esc(s){
@@ -1861,11 +1886,13 @@ window.addEventListener('beforeunload',function(e){
 });
 
 async function sbUpsert(table,id,data){
+  if(SANDBOX)return;              // песочница в боевое облако не пишет
   queueSync(table,id,data,false);
 }
 async function sbDelete(table,id){
   // Мягкое удаление: помечаем запись как удалённую в облаке (надгробие),
   // чтобы удаление синхронизировалось на все устройства и запись не воскресала.
+  if(SANDBOX)return;              // песочница в боевое облако не пишет
   queueSync(table,id,null,true);
 }
 async function sbLoadAll(table){
@@ -1879,7 +1906,7 @@ async function initFromSupabase(){
     // Надгробия: id помеченные как удалённые в облаке
     var deletedIds=new Set();
     lotsData.forEach(function(row){if(row.data&&row.data._deleted)deletedIds.add(row.id);});
-    var localLots=JSON.parse(localStorage.getItem('fbsm_lots_v5')||'[]');
+    var localLots=JSON.parse(localStorage.getItem(LS_LOTS)||'[]');
     var merged={};
     localLots.forEach(function(l){if(!deletedIds.has(l.id))merged[l.id]=l;}); // не берём локально удалённые
     lotsData.forEach(function(row){
@@ -1888,7 +1915,7 @@ async function initFromSupabase(){
       if(!local||new Date(row.updated_at)>=new Date(local.updatedAt||0))merged[row.id]=sbLot;
     });
     lots=Object.values(merged).sort(function(a,b){return new Date(b.createdAt||0)-new Date(a.createdAt||0);});
-    localStorage.setItem('fbsm_lots_v5',JSON.stringify(lots));
+    localStorage.setItem(LS_LOTS,JSON.stringify(lots));
     // Заливаем в облако только те что реально существуют И не помечены удалёнными
     var sbIds=new Set(lotsData.map(function(r){return r.id;}));
     lots.forEach(function(l){if(!sbIds.has(l.id)&&!deletedIds.has(l.id))sbUpsert('lots',l.id,l);});
@@ -1896,7 +1923,7 @@ async function initFromSupabase(){
   if(promosData){
     var deletedPromoIds=new Set();
     promosData.forEach(function(row){if(row.data&&row.data._deleted)deletedPromoIds.add(row.id);});
-    var localPromos=JSON.parse(localStorage.getItem('fbsm_promos_v1')||'[]');
+    var localPromos=JSON.parse(localStorage.getItem(LS_PROMOS)||'[]');
     var merged2={};
     localPromos.forEach(function(p){if(!deletedPromoIds.has(p.id))merged2[p.id]=p;});
     promosData.forEach(function(row){
@@ -1905,7 +1932,7 @@ async function initFromSupabase(){
     });
     promos=Object.values(merged2);
     promos.forEach(function(p){if(Array.isArray(p.items))p.items.forEach(function(it){if(!it.lotId)it.lotId=p.lotId;});});
-    localStorage.setItem('fbsm_promos_v1',JSON.stringify(promos));
+    localStorage.setItem(LS_PROMOS,JSON.stringify(promos));
   }
   showSyncStatus('');renderAnalytics();checkPromoExpiry();updateRecosBadge();
 }
@@ -4567,10 +4594,10 @@ function delLot(id){
     p.items=p.items.filter(function(pi){return (pi.lotId||p.lotId)!==id;});
     if(p.items.length!==before){cleaned++;if(p.lotId===id&&p.items.length)p.lotId=p.items[0].lotId||p.lotId;sbUpsert('promos',p.id,p);}
   });
-  if(cleaned)localStorage.setItem('fbsm_promos_v1',JSON.stringify(promos));
+  if(cleaned)localStorage.setItem(LS_PROMOS,JSON.stringify(promos));
   sbDelete('lots',id);
   lots=lots.filter(function(x){return x.id!==id;});
-  localStorage.setItem('fbsm_lots_v5',JSON.stringify(lots));
+  localStorage.setItem(LS_LOTS,JSON.stringify(lots));
   closeModal('modal-detail');renderAnalytics();updateRecosBadge();
 }
 function toggleStatus(id){var l=getLot(id);if(!l)return;l.status=l.status==='closed'?'active':'closed';save();closeModal('modal-detail');renderAnalytics();}
@@ -4616,6 +4643,22 @@ function renderAnalytics(){
   ungrouped.forEach(function(l){html+=lotCardHtml(l);});
   el.innerHTML=html;
 }
+// ===== ПЕСОЧНИЦА: наполнение и очистка =====
+// Копия боевых данных берётся из файла резервной копии — облако при этом не трогается.
+function sandboxLoadFromBackup(){
+  if(!SANDBOX)return;
+  var inp=document.getElementById('restore-file');
+  alert('Выберите файл резервной копии (FBSM_копия_ГГГГ-ММ-ДД.json).\nОн загрузится ТОЛЬКО в песочницу, боевые данные не изменятся.');
+  inp.click();
+}
+function sandboxClear(){
+  if(!SANDBOX)return;
+  if(!confirm('Очистить песочницу? Боевых данных это не касается.'))return;
+  lots=[];promos=[];
+  localStorage.setItem(LS_LOTS,'[]');localStorage.setItem(LS_PROMOS,'[]');
+  renderAnalytics();updateRecosBadge();
+}
+
 // ===== РЕЗЕРВНАЯ КОПИЯ =====
 // Скачивает всё (лоты, акции, настройки) одним файлом. Восстановление — из этого же файла.
 function downloadBackup(){
@@ -4655,8 +4698,8 @@ function restoreBackupFile(e){
     autoSnapshot('перед восстановлением из копии');
     lots=data.lots;promos=data.promos||[];
     if(data.settings)CFG=Object.assign({},DEF_CFG,data.settings);
-    localStorage.setItem('fbsm_lots_v5',JSON.stringify(lots));
-    localStorage.setItem('fbsm_promos_v1',JSON.stringify(promos));
+    localStorage.setItem(LS_LOTS,JSON.stringify(lots));
+    localStorage.setItem(LS_PROMOS,JSON.stringify(promos));
     localStorage.setItem(SETTINGS_KEY,JSON.stringify(CFG));
     lots.forEach(function(l){sbUpsert('lots',l.id,l);});
     promos.forEach(function(p){sbUpsert('promos',p.id,p);});
