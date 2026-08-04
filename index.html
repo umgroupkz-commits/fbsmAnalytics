@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v81</title>
+<title>FBSM — Управление лотами v82</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -169,7 +169,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v81</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v82</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -3931,6 +3931,125 @@ async function apiGet(path,params){
   return data;
 }
 
+// ===== ЗАГРУЗКА ДАННЫХ ИЗ 1С =====
+// Сначала строим план и показываем его, и только потом применяем:
+// автоматическая раскладка по партиям — то место, где ошибка дорога.
+var SALES_WINDOW_DAYS=90;      // за какой период просим продажи (в 1С окно 30 дней)
+var _apiPlan=null,_apiRawData=null;
+
+async function apiFetchAll(onProgress){
+  function step(t){if(onProgress)onProgress(t);}
+  step('Справочник товаров…');
+  var catalog=await apiGet('/goods/catalog',{});
+  step('Остатки по складам…');
+  var stock=await apiGet('/goods/stock',{});
+  step('Цены…');
+  var prices=await apiGet('/goods/prices',{});
+  step('Продажи…');
+  var to=new Date();
+  var from=new Date(to.getTime()-SALES_WINDOW_DAYS*MS_PER_DAY);
+  var sales=null;
+  try{
+    sales=await apiGet('/goods/sales',{from:from.toISOString().slice(0,10),to:to.toISOString().slice(0,10),group_by:'week'});
+  }catch(e){sales={weeks:[],rows:[],synced_days:[],_error:e.message};}
+  return {catalog:catalog,stock:stock,prices:prices,sales:sales};
+}
+
+// План: что попадёт в существующие лоты, что предлагается завести новым
+function apiBuildPlan(data){
+  var stockMap=apiToStockMap(data.catalog,data.stock);
+  var priceMap=apiToPriceMap(data.catalog,data.prices);
+  var salesData=apiToSalesData(data.catalog,data.sales);
+  var groups=apiToGroups(data.catalog,data.stock);
+  var negatives=apiNegativeStock(data.catalog,data.stock);
+  // Продажам можно верить только если 1С подтвердила, за какие дни есть данные
+  var syncedDays=(data.sales&&data.sales.synced_days)||[];
+  var salesUsable=syncedDays.length>0;
+
+  var lotPlans=[],newGroups=[];
+  groups.forEach(function(g){
+    var lot=apiFindLotForGroup(g.group,g.path);
+    if(!lot){newGroups.push({group:g.group,items:g.items.length,qty:g.total,path:g.path});return;}
+    if(lot.status==='closed')return;                    // закрытые лоты не трогаем
+    var existing={};(lot.items||[]).forEach(function(i){existing[i.key||i.name]=i;});
+    var matched=0,added=0,qtyChanged=0,priceChanged=0;
+    g.items.forEach(function(gi){
+      var ex=existing[gi.name];
+      if(ex){
+        matched++;
+        if((ex.qty||0)!==gi.qty)qtyChanged++;
+        var np=priceMap[gi.name];
+        if(np&&ex.price&&np!==ex.price)priceChanged++;
+      } else added++;
+    });
+    // Позиции лота, которых больше нет в остатках 1С — распроданы
+    var soldOut=(lot.items||[]).filter(function(i){
+      return (i.qty||0)>0 && stockMap[i.key||i.name]===undefined;
+    }).length;
+    lotPlans.push({lot:lot,group:g.group,matched:matched,added:added,soldOut:soldOut,
+                   qtyChanged:qtyChanged,priceChanged:priceChanged,groupItems:g.items});
+  });
+  return {stockMap:stockMap,priceMap:priceMap,salesData:salesData,groups:groups,
+          lotPlans:lotPlans,newGroups:newGroups,negatives:negatives,
+          salesUsable:salesUsable,syncedDays:syncedDays,
+          catalogCount:(data.catalog.items||[]).length,
+          stockRows:(data.stock.rows||[]).length,
+          priceRows:(data.prices.rows||[]).length,
+          salesRows:(data.sales&&data.sales.rows||[]).length};
+}
+
+// Применение плана к существующим лотам
+function apiApplyPlan(plan){
+  autoSnapshot('перед загрузкой данных из 1С');
+  var updatedLots=0,updatedItems=0,addedItems=0,soldOutItems=0;
+  plan.lotPlans.forEach(function(lp){
+    var l=lp.lot;
+    var groupStock={};
+    lp.groupItems.forEach(function(gi){groupStock[gi.name]={name:gi.name,char:'',key:gi.name,qty:gi.qty};});
+    var existing={};(l.items||[]).forEach(function(i){existing[i.key||i.name]=i;});
+    // Обновляем и добавляем позиции этой партии
+    lp.groupItems.forEach(function(gi){
+      var ex=existing[gi.name];
+      var price=plan.priceMap[gi.name];
+      var sal=plan.salesUsable?plan.salesData.sales[gi.name]:null;
+      if(ex){
+        ex.qty=gi.qty;
+        if(price>0){
+          if(ex.price>0){if(price>ex.price)ex.priceUp=true;else if(price<ex.price)ex.priceUp=false;}
+          ex.price=price;ex.noPrice=false;
+        }
+        if(sal){ex.weeks=mergeWeeks(ex.weeks,sal.weeks);recalcSoldFromWeeks(ex);}
+        updatedItems++;
+      } else {
+        var ni=buildItems({n:{name:gi.name,char:'',key:gi.name,qty:gi.qty}},plan.priceMap,null,null)[0];
+        ni.receivedDate=new Date().toISOString().slice(0,10);
+        if(sal){ni.weeks=sal.weeks.slice();recalcSoldFromWeeks(ni);}
+        l.items.push(ni);
+        addedItems++;
+      }
+    });
+    // Позиции, пропавшие из остатков 1С, считаем распроданными
+    (l.items||[]).forEach(function(i){
+      var k=i.key||i.name;
+      if((i.qty||0)>0&&plan.stockMap[k]===undefined&&!groupStock[k]){
+        i.qty=0;soldOutItems++;
+      }
+    });
+    if(!l.sourceGroups)l.sourceGroups=[];
+    if(l.sourceGroups.indexOf(lp.group)<0)l.sourceGroups.push(lp.group);  // запомнить связь с партией 1С
+    calcCosts(l.items,l.cost,l.totalUnits);
+    enrichItems(l.items,l.date,l.secondSeason,l.sellBy);
+    if(plan.salesUsable&&plan.salesData.weeks.length)l.weeks=mergeWeekLabels(l.weeks,plan.salesData.weeks);
+    l.updatedAt=new Date().toISOString();
+    sbUpsert('lots',l.id,l);
+    updatedLots++;
+  });
+  save();bumpDataVersion();
+  logAction('load','Загрузка из 1С: обновлено лотов '+updatedLots+', позиций '+updatedItems+
+    (addedItems?', добавлено новых '+addedItems:'')+(soldOutItems?', распродано '+soldOutItems:''));
+  return {updatedLots:updatedLots,updatedItems:updatedItems,addedItems:addedItems,soldOutItems:soldOutItems};
+}
+
 // Проверка связи по цепочке: программа → прокси → 1С.
 // Показывает, на каком именно звене остановились, а не общее «не работает».
 async function checkApiConnection(){
@@ -3976,7 +4095,7 @@ async function renderApiExchange(){
     html+=line('Данные в 1С свежие', !!st.last_refreshed_at, st.last_refreshed_at?('обновлены '+String(st.last_refreshed_at).slice(0,16).replace('T',' ')):'—');
     html+=line('Закупочные цены открыты', st.cost_exposed===true, st.cost_exposed===true?'да':'нет — маржа по позициям будет оценочной');
     html+='<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">'+
-      '<button class="btn btn-primary" onclick="alert(\'Загрузка данных из 1С будет включена после сверки цифр с вашими выгрузками\')"><i class="ti ti-download"></i> Загрузить данные</button></div>';
+      '<button class="btn btn-primary" onclick="apiStartSync()"><i class="ti ti-download"></i> Загрузить данные из 1С</button></div>';
   } else {
     html+='<div class="rec-box" style="background:var(--surface2);margin-top:12px;font-size:11px;line-height:1.6">'+
       '<b>Что это значит.</b> Программа готова принимать данные, но обмен на стороне 1С ещё не включён — '+
@@ -3986,6 +4105,139 @@ async function renderApiExchange(){
       '</div>';
   }
   el.innerHTML=html;
+}
+
+// Мастер загрузки: скачиваем → показываем план → применяем по кнопке
+async function apiStartSync(){
+  var el=document.getElementById('api-body');
+  function progress(t){
+    el.innerHTML='<div style="padding:26px;text-align:center">'+
+      '<div style="font-size:14px;font-weight:600;margin-bottom:8px">Загружаю данные из 1С</div>'+
+      '<div style="font-size:12px;color:var(--text2)">'+esc(t)+'</div>'+
+      '<div style="font-size:10px;color:var(--text3);margin-top:10px">Первая загрузка занимает до минуты</div></div>';
+  }
+  progress('Соединяюсь…');
+  try{
+    var data=await apiFetchAll(progress);
+    progress('Сверяю с вашими лотами…');
+    _apiRawData=data;                 // держим для пересборки плана после привязки партий
+    _apiPlan=apiBuildPlan(data);
+    renderApiPlan();
+  }catch(e){
+    el.innerHTML='<div style="padding:24px;text-align:center">'+
+      '<div style="font-size:13px;color:var(--red);margin-bottom:10px">Не удалось загрузить: '+esc(e.message)+'</div>'+
+      '<button class="btn btn-ghost" onclick="renderApiExchange()">Назад</button></div>';
+  }
+}
+function renderApiPlan(){
+  var p=_apiPlan;if(!p)return;
+  var totalMatched=0,totalAdded=0,totalSoldOut=0,totalPrice=0;
+  p.lotPlans.forEach(function(x){totalMatched+=x.matched;totalAdded+=x.added;totalSoldOut+=x.soldOut;totalPrice+=x.priceChanged;});
+  var html='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px">'+
+    '<div style="flex:1"><div class="modal-title">Что придёт из 1С</div>'+
+    '<div style="font-size:11px;color:var(--text2)">Проверьте — данные ещё не применены</div></div>'+
+    '<button class="btn btn-ghost btn-sm" onclick="renderApiExchange()"><i class="ti ti-x"></i></button></div>';
+
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
+    '<div class="stat-card"><div class="stat-lbl">Товаров в 1С</div><div class="stat-val">'+fmt(p.catalogCount)+'</div><div class="stat-sub">'+fmt(p.stockRows)+' строк остатков</div></div>'+
+    '<div class="stat-card"><div class="stat-lbl">Обновится позиций</div><div class="stat-val" style="color:var(--accent)">'+fmt(totalMatched)+'</div><div class="stat-sub">в '+p.lotPlans.length+' лотах</div></div>'+
+    (totalAdded?'<div class="stat-card"><div class="stat-lbl">Новых позиций</div><div class="stat-val" style="color:var(--green)">'+fmt(totalAdded)+'</div><div class="stat-sub">добавятся в лоты</div></div>':'')+
+    (totalSoldOut?'<div class="stat-card"><div class="stat-lbl">Распродано</div><div class="stat-val" style="color:var(--text2)">'+fmt(totalSoldOut)+'</div><div class="stat-sub">остаток станет 0</div></div>':'')+
+    (totalPrice?'<div class="stat-card"><div class="stat-lbl">Изменились цены</div><div class="stat-val" style="color:var(--yellow)">'+fmt(totalPrice)+'</div></div>':'')+
+    '</div>';
+
+  // Честно о продажах: без synced_days нули считать нельзя
+  if(p.salesUsable){
+    html+='<div class="rec-box" style="background:var(--bg-green);border:1px solid var(--green);color:var(--text);font-size:11px">'+
+      '✓ Продажи получены за '+p.syncedDays.length+' дн. ('+esc(p.syncedDays[0])+' … '+esc(p.syncedDays[p.syncedDays.length-1])+'), '+fmt(p.salesRows)+' строк. Недельная динамика обновится.</div>';
+  } else {
+    html+='<div class="rec-box" style="background:var(--bg-orange);border:1px solid var(--orange);color:var(--text);font-size:11px">'+
+      '⚠ Продажи за запрошенный период 1С пока не отдала (окно данных ещё наполняется). '+
+      '<b>Продажи в лотах трогать не будем</b> — обновятся только остатки и цены. Это правильно: пустой ответ ≠ «ничего не продали».</div>';
+  }
+  if(p.negatives.length){
+    html+='<div class="rec-box" style="background:var(--bg-yellow);border:1px solid var(--yellow);color:var(--text);font-size:11px">'+
+      '⚠ В 1С есть позиции с отрицательным остатком ('+p.negatives.length+') — в расчёт они не пойдут, но это повод разобраться в учёте: '+
+      esc(p.negatives.slice(0,3).map(function(n){return n.name+' ('+n.qty+')';}).join(', '))+(p.negatives.length>3?'…':'')+'</div>';
+  }
+
+  if(p.lotPlans.length){
+    html+='<div style="font-size:12px;font-weight:600;margin:12px 0 6px">Лоты, которые обновятся</div>'+
+      '<div style="overflow-x:auto;max-height:240px;overflow-y:auto"><table><thead><tr><th>Лот</th><th>Партия в 1С</th>'+
+      '<th style="text-align:right">Обновится</th><th style="text-align:right">Новых</th><th style="text-align:right">Распродано</th><th style="text-align:right">Смена цены</th></tr></thead><tbody>';
+    p.lotPlans.forEach(function(x){
+      html+='<tr><td style="font-weight:500">'+esc(x.lot.name)+'</td>'+
+        '<td style="font-size:10px;color:var(--text3)">'+esc(x.group)+'</td>'+
+        '<td class="mono" style="text-align:right">'+x.matched+'</td>'+
+        '<td class="mono" style="text-align:right;color:'+(x.added?'var(--green)':'var(--text3)')+'">'+(x.added||'—')+'</td>'+
+        '<td class="mono" style="text-align:right;color:'+(x.soldOut?'var(--text2)':'var(--text3)')+'">'+(x.soldOut||'—')+'</td>'+
+        '<td class="mono" style="text-align:right;color:'+(x.priceChanged?'var(--yellow)':'var(--text3)')+'">'+(x.priceChanged||'—')+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+  }
+
+  if(p.newGroups.length){
+    html+='<div style="font-size:12px;font-weight:600;margin:14px 0 4px;color:var(--accent2)">Партии 1С без лота ('+p.newGroups.length+')</div>'+
+      '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Эти группы есть в 1С, но не привязаны ни к одному лоту. Если лот для партии уже заведён (названия часто отличаются: «DKF» в 1С и «DKF Пуховички и жилетки» у нас) — выберите его, и связь запомнится навсегда.</div>'+
+      '<div style="overflow-x:auto;max-height:260px;overflow-y:auto"><table><thead><tr><th>Партия в 1С</th><th style="text-align:right">Позиций</th><th style="text-align:right">Штук</th><th>Привязать к лоту</th></tr></thead><tbody>';
+    p.newGroups.sort(function(a,b){return b.qty-a.qty;}).forEach(function(g,gi){
+      // Подсказка: лот, чьё название начинается с имени партии либо содержит его
+      var gl=g.group.toLowerCase();
+      var suggest=lots.filter(function(l){
+        if(l.status==='closed')return false;
+        var ln=(l.name||'').toLowerCase();
+        return ln.indexOf(gl)>=0||gl.indexOf(ln)>=0;
+      })[0];
+      var opts='<option value="">— не привязывать —</option>';
+      lots.forEach(function(l){
+        if(l.status==='closed')return;
+        opts+='<option value="'+l.id+'"'+(suggest&&suggest.id===l.id?' selected':'')+'>'+esc(l.name)+'</option>';
+      });
+      html+='<tr><td style="font-weight:500">'+esc(g.group)+(suggest?' <span style="font-size:9px;color:var(--green)">похоже на «'+esc(suggest.name)+'»</span>':'')+'</td>'+
+        '<td class="mono" style="text-align:right">'+g.items+'</td>'+
+        '<td class="mono" style="text-align:right">'+fmt(g.qty)+'</td>'+
+        '<td><select id="bind-'+gi+'" data-group="'+esc(g.group)+'" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;max-width:230px">'+opts+'</select></td></tr>';
+    });
+    html+='</tbody></table></div>'+
+      '<div style="margin-top:6px;text-align:right"><button class="btn btn-warn btn-sm" onclick="apiBindGroups()"><i class="ti ti-link"></i> Привязать выбранные и пересчитать</button></div>';
+  }
+
+  html+='<div class="modal-footer">'+
+    '<button class="btn btn-ghost" onclick="renderApiExchange()">Отмена</button>'+
+    (p.lotPlans.length?'<button class="btn btn-success" onclick="apiApplyNow()"><i class="ti ti-check"></i> Применить к '+p.lotPlans.length+' лотам</button>':
+      '<span style="font-size:11px;color:var(--orange)">Ни одна партия 1С не привязана к лотам — применять нечего</span>')+
+    '</div>';
+  document.getElementById('api-body').innerHTML=html;
+}
+// Привязка партий 1С к существующим лотам: запоминаем в sourceGroups и строим план заново
+function apiBindGroups(){
+  var p=_apiPlan;if(!p)return;
+  var bound=0;
+  p.newGroups.forEach(function(g,gi){
+    var sel=document.getElementById('bind-'+gi);
+    if(!sel||!sel.value)return;
+    var l=getLot(sel.value);if(!l)return;
+    if(!l.sourceGroups)l.sourceGroups=[];
+    if(l.sourceGroups.indexOf(g.group)<0){l.sourceGroups.push(g.group);bound++;}
+  });
+  if(!bound){alert('Ни одна партия не выбрана для привязки');return;}
+  save();
+  logAction('lot','Привязано партий 1С к лотам: '+bound);
+  // Пересобираем план: привязанные партии теперь попадут в свои лоты
+  _apiPlan=apiBuildPlan(_apiRawData);
+  renderApiPlan();
+}
+function apiApplyNow(){
+  var p=_apiPlan;if(!p)return;
+  if(!confirm('Применить данные из 1С к '+p.lotPlans.length+' лотам?\nПеред изменением сохраняется снимок для отката.'))return;
+  var r=apiApplyPlan(p);
+  _apiPlan=null;
+  closeModal('modal-api');
+  renderActivePage();updateRecosBadge();
+  alert('✓ Данные из 1С загружены\n\nОбновлено лотов: '+r.updatedLots+
+    '\nОбновлено позиций: '+r.updatedItems+
+    (r.addedItems?'\nДобавлено новых: '+r.addedItems:'')+
+    (r.soldOutItems?'\nОтмечено распроданными: '+r.soldOutItems:''));
 }
 
 // --- Приведение ответов API к формату парсеров ---
