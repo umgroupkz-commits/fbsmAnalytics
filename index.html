@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v79</title>
+<title>FBSM — Управление лотами v80</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -169,7 +169,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v79</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v80</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -463,6 +463,11 @@ tr:hover td{background:#1a2030}
   <div class="modal modal-full" id="detail-body"></div>
 </div>
 
+<!-- MODAL ACTION LOG -->
+<div id="modal-log" class="modal-overlay" style="display:none">
+  <div class="modal" id="log-body" style="max-width:860px"></div>
+</div>
+
 <!-- MODAL API EXCHANGE -->
 <div id="modal-api" class="modal-overlay" style="display:none">
   <div class="modal" id="api-body" style="max-width:620px"></div>
@@ -713,6 +718,7 @@ async function afterLogin(){
   try{var s=await getSB().auth.getUser();u=s&&s.data?s.data.user:null;}catch(e){}
   var el=document.getElementById('auth-user');
   if(el&&u)el.textContent=u.email;
+  if(u)window._authEmail=u.email;   // подписывать записи журнала автором
   await initFromSupabase();
 }
 async function initAuth(){
@@ -915,7 +921,7 @@ function numFromInput(id,opts){
 function fmtD(n){return (n||0).toFixed(1);}
 function pct(n){return (n||0).toFixed(1)+'%';}
 function uid(){return 'id_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);}
-function closeModal(id){document.getElementById(id).style.display='none';}
+function closeModal(id){var el=document.getElementById(id);if(el)el.style.display='none';}
 function showPage(id,el){
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
@@ -1836,12 +1842,18 @@ function applyDiscountCore(itemId,opts){
   if(rec.disc===0){if(!opts.silent)alert('Скидка не нужна');return false;}
   if(!item.discountHistory)item.discountHistory=[];
   if(item.discountPct>0)item.discountHistory.push({disc:item.discountPct,date:item.discountSetDate||'',price:item.discountPrice||0});
+  var wasPct=item.discountPct||0;
   item.discountPct=rec.disc;
   item.discountPrice=rec.discPrice;
   item.discountSetDate=new Date().toISOString().slice(0,10);
   item.hasDiscount=true;
   // Слив: подтверждён явно (кнопка «Слить») либо так рекомендовала система
-  if(opts.liquidate||rec.isLiquidate)item.isLiquidated=true;
+  var isLiq=opts.liquidate||rec.isLiquidate;
+  if(isLiq)item.isLiquidated=true;
+  logAction(isLiq?'liq':'disc',
+    (isLiq?'Слив ':'Скидка ')+(wasPct>0?('−'+wasPct+'% → −'+rec.disc+'%'):('−'+rec.disc+'%'))+
+    ' · '+item.name+' («'+l.name+'»), цена '+fmt(rec.discPrice)+' ₸'+(rec.reason?' · '+rec.reason:''),
+    {lotName:l.name,itemName:item.name});
   save();
   var mode=opts.rerender||'detail';
   if(mode==='detail'&&activeLotId===lid)renderDetail();
@@ -1862,6 +1874,7 @@ function removeLiquidate(itemId,lotId){
   var lid=lotId||activeLotId;
   var l=getLot(lid);if(!l)return;
   var item=getItem(l,itemId);if(!item)return;
+  logAction('unliq','Убрано из сливов · '+item.name+' («'+l.name+'»)',{lotName:l.name,itemName:item.name});
   item.isLiquidated=false;item.hasDiscount=false;item.discountPct=0;item.discountPrice=0;
   save();if(activeLotId===lid)renderDetail();renderPromos();
 }
@@ -1869,6 +1882,7 @@ function removeDiscount(itemId){
   if(!activeLotId)return;
   var l=getLot(activeLotId);if(!l)return;
   var item=getItem(l,itemId);if(!item)return;
+  logAction('undisc','Снята скидка −'+(item.discountPct||0)+'% · '+item.name+' («'+l.name+'»)',{lotName:l.name,itemName:item.name});
   item.discountPct=0;item.discountPrice=0;item.hasDiscount=false;save();renderDetail();
 }
 
@@ -1905,6 +1919,7 @@ function togglePriceUp(itemId){
   var item=getItem(l,itemId);if(!item)return;
   item.priceUp=!item.priceUp;
   if(item.priceUp)item.priceUpDate=new Date().toISOString().slice(0,10);
+  logAction('price',(item.priceUp?'Отмечено «цена повышена» · ':'Снят ярлык повышенной цены · ')+item.name+' («'+l.name+'»)',{lotName:l.name,itemName:item.name});
   save();renderDetail();
 }
 function showPromoHistoryPopup(e,itemId){
@@ -2555,7 +2570,9 @@ function saveLot(){
   if(!busyGuard('saveLot'))return; // второй клик по «Сохранить» не создаст дубль лота
   var lotName=document.getElementById('p-name').value.trim();
   var lot={id:uid(),name:lotName,date:document.getElementById('p-date').value,cost:numFromInput('p-cost',{min:0}),totalUnits:draft._totalUnits||0,profitTarget:draft._profitTarget,sellBy:draft._sellBy||'',secondSeason:draft._secondSeason||false,supplier:document.getElementById('p-supplier').value,comment:document.getElementById('p-comment').value,status:'active',sourceGroups:[lotName],items:draft._items,weeks:draft._weeks||[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
-  lots.unshift(lot);save();closeModal('modal-create');showPage('analytics',document.getElementById('tab-analytics'));
+  lots.unshift(lot);
+  logAction('lot','Создан лот «'+lot.name+'»: '+((lot.items||[]).length)+' позиций, стоимость '+fmt(lot.cost)+' ₸',{lotName:lot.name});
+  save();closeModal('modal-create');showPage('analytics',document.getElementById('tab-analytics'));
 }
 
 // ===== UPDATE LOT =====
@@ -2809,6 +2826,7 @@ function applyUpdate(){
     calcCosts(l.items,newCost,newTotal);
     enrichItems(l.items,l.date,l.secondSeason,l.sellBy);
     resultMsg='Обновлена динамика продаж по '+updatedCount+' позициям. Остатки пересчитаны.';
+    logAction('load','Загружены продажи в лот «'+l.name+'»: обновлено '+updatedCount+' позиций',{lotName:l.name});
   }
   l.cost=newCost;l.totalUnits=newTotal;
   // Полное редактирование: сохранить и текстовые параметры
@@ -3440,6 +3458,7 @@ function savePromoMeta(){
       save();
     }
     promos.push(promo);
+    logAction('promo','Создана акция «'+promo.name+'»: '+promo.items.length+' позиций, '+(promo.unlimited?'бессрочно':(promo.startDate+' → '+promo.endDate)));
   }
   savePromos();
   closeModal('modal-promo');
@@ -3705,6 +3724,81 @@ function renderHelp(){
   el.innerHTML=html;
 }
 
+
+// ===== ЖУРНАЛ ДЕЙСТВИЙ =====
+// Что и когда сделали руками: скидки, сливы, акции, загрузки, удаления.
+// Нужен, когда решение принимали неделю назад и уже не помнишь, почему.
+// Хранится локально (последние 500 записей) — в облако не уходит, это личная история устройства.
+var LOG_KEY=SANDBOX?'sandbox_fbsm_log':'fbsm_log';
+var LOG_LIMIT=500;
+function logAction(type,text,extra){
+  try{
+    // Читаем через readLog: если журнал повреждён, он вернёт пустой список,
+    // и запись продолжит вестись с чистого листа, а не пропадёт навсегда
+    var log=readLog();
+    log.unshift(Object.assign({at:new Date().toISOString(),type:type,text:text,user:(window._authEmail||'')},extra||{}));
+    if(log.length>LOG_LIMIT)log=log.slice(0,LOG_LIMIT);
+    localStorage.setItem(LOG_KEY,JSON.stringify(log));
+  }catch(e){/* переполнение хранилища не должно ломать работу */}
+}
+function readLog(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]');}catch(e){return [];}}
+var LOG_LABEL={
+  disc:{t:'Скидка',c:'var(--yellow)'},liq:{t:'Слив',c:'var(--red)'},
+  undisc:{t:'Скидка снята',c:'var(--text2)'},unliq:{t:'Слив отменён',c:'var(--text2)'},
+  promo:{t:'Акция',c:'var(--teal)'},promoend:{t:'Акция завершена',c:'var(--text2)'},
+  load:{t:'Загрузка данных',c:'var(--accent)'},lot:{t:'Лот',c:'var(--accent2)'},
+  del:{t:'Удаление',c:'var(--red)'},price:{t:'Цена',c:'var(--green)'}
+};
+function openLog(){
+  var log=readLog();
+  var html='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px">'+
+    '<div style="flex:1"><div class="modal-title">Журнал действий</div>'+
+    '<div style="font-size:11px;color:var(--text2)">Что делали руками: скидки, сливы, акции, загрузки. Хранится на этом устройстве, последние '+LOG_LIMIT+' записей</div></div>'+
+    (log.length?'<button class="btn btn-ghost btn-sm" onclick="exportLog()"><i class="ti ti-file-spreadsheet"></i> В Excel</button>':'')+
+    '<button class="btn btn-ghost btn-sm" onclick="clearLog()" style="color:var(--red)">Очистить</button>'+
+    '<button class="btn btn-ghost btn-sm" onclick="closeModal(\'modal-log\')"><i class="ti ti-x"></i></button></div>';
+  if(!log.length){
+    html+='<div class="empty-state"><div style="font-size:32px">📋</div><div>Записей пока нет</div>'+
+      '<div style="font-size:11px">Здесь появятся ваши действия: поставленные скидки, сливы, созданные акции, загрузки данных</div></div>';
+  } else {
+    // Группировка по дням — так проще вспоминать «что я делал во вторник»
+    var byDay={};
+    log.forEach(function(r){var d=String(r.at).slice(0,10);(byDay[d]=byDay[d]||[]).push(r);});
+    Object.keys(byDay).sort().reverse().forEach(function(day){
+      var d=new Date(day);
+      var label=isNaN(d.getTime())?day:d.toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'});
+      html+='<div style="font-size:11px;font-weight:600;color:var(--text2);margin:12px 0 4px">'+esc(label)+
+        ' <span style="color:var(--text3);font-weight:400">— '+byDay[day].length+' действий</span></div>';
+      byDay[day].forEach(function(r){
+        var L=LOG_LABEL[r.type]||{t:r.type,c:'var(--text2)'};
+        html+='<div style="display:flex;gap:8px;align-items:baseline;padding:3px 0;border-bottom:1px solid var(--border)">'+
+          '<span style="font-family:var(--mono);font-size:10px;color:var(--text3);width:38px;flex-shrink:0">'+String(r.at).slice(11,16)+'</span>'+
+          '<span style="font-size:9px;font-weight:700;color:'+L.c+';width:110px;flex-shrink:0">'+esc(L.t)+'</span>'+
+          '<span style="font-size:11px;flex:1">'+esc(r.text)+'</span></div>';
+      });
+    });
+  }
+  document.getElementById('log-body').innerHTML=html;
+  document.getElementById('modal-log').style.display='flex';
+}
+function clearLog(){
+  if(!confirm('Очистить журнал действий? Сами данные (лоты, скидки, акции) это не затронет.'))return;
+  try{localStorage.removeItem(LOG_KEY);}catch(e){}
+  openLog();
+}
+function exportLog(){
+  var log=readLog();
+  if(!log.length){alert('Журнал пуст');return;}
+  var aoa=[['Дата','Время','Тип','Действие','Лот','Позиция']];
+  log.forEach(function(r){
+    var L=LOG_LABEL[r.type]||{t:r.type};
+    aoa.push([String(r.at).slice(0,10),String(r.at).slice(11,19),L.t,r.text,r.lotName||'',r.itemName||'']);
+  });
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:12},{wch:10},{wch:18},{wch:70},{wch:24},{wch:32}];
+  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Журнал');
+  XLSX.writeFile(wb,'FBSM_журнал_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
 
 // ===== РАЗБОР ОТ ИИ =====
 // Модели отдаётся УЖЕ посчитанная сводка: она ничего не вычисляет, только толкует.
@@ -5247,6 +5341,7 @@ function endPromo(promoId){
     var p=getPromo(promoId);if(!p){alert('Акция не найдена');return;}
     if(!confirm('Завершить акцию? Позиции останутся в архиве, метки «был в акции» добавятся.'))return;
     p.status='ended';p.endedAt=new Date().toISOString();
+    logAction('promoend','Завершена акция «'+p.name+'» ('+((p.items||[]).length)+' позиций)');
     if(Array.isArray(p.items)){
       p.items.forEach(function(pi){
         if(!pi||!pi.itemId)return;
@@ -5401,6 +5496,7 @@ function delLot(id){
     if(p.items.length!==before){cleaned++;if(p.lotId===id&&p.items.length)p.lotId=p.items[0].lotId||p.lotId;sbUpsert('promos',p.id,p);}
   });
   if(cleaned)localStorage.setItem(LS_PROMOS,JSON.stringify(promos));
+  logAction('del','Удалён лот «'+l.name+'» ('+((l.items||[]).length)+' позиций)'+(cleaned?', позиции убраны из '+cleaned+' акций':''),{lotName:l.name});
   sbDelete('lots',id);
   lots=lots.filter(function(x){return x.id!==id;});
   localStorage.setItem(LS_LOTS,JSON.stringify(lots));
@@ -5413,7 +5509,7 @@ function toggleStatus(id){var l=getLot(id);if(!l)return;l.status=l.status==='clo
 // Экран "Требует внимания" — алерты по всем лотам
 function renderAnalytics(){
   var el=document.getElementById('analytics-content');
-  var headerBtn='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-size:14px;font-weight:600">Лоты и сводная аналитика</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="openApiExchange()" title="Обмен данными с 1С"><i class="ti ti-plug-connected"></i> 1С</button><button class="btn btn-ghost btn-sm" onclick="openOwnerReport()" title="Сводный отчёт по всем лотам: вложено, вернулось, что зависло"><i class="ti ti-report"></i> Отчёт</button><button class="btn btn-ghost btn-sm" onclick="downloadBackup()" title="Скачать резервную копию всех данных"><i class="ti ti-download"></i> Копия</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'restore-file\').click()" title="Восстановить данные из файла копии"><i class="ti ti-upload"></i> Восстановить</button><button class="btn btn-ghost btn-sm" onclick="forceSyncAll()"><i class="ti ti-cloud-upload"></i> Синхронизировать</button><button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i> Настройки</button><button class="btn btn-ghost btn-sm" onclick="openBatchUpdate()"><i class="ti ti-refresh"></i> Обновить все</button><button class="btn btn-primary btn-sm" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button></div></div>';
+  var headerBtn='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-size:14px;font-weight:600">Лоты и сводная аналитика</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="openLog()" title="Журнал действий: что и когда делали"><i class="ti ti-history"></i> Журнал</button><button class="btn btn-ghost btn-sm" onclick="openApiExchange()" title="Обмен данными с 1С"><i class="ti ti-plug-connected"></i> 1С</button><button class="btn btn-ghost btn-sm" onclick="openOwnerReport()" title="Сводный отчёт по всем лотам: вложено, вернулось, что зависло"><i class="ti ti-report"></i> Отчёт</button><button class="btn btn-ghost btn-sm" onclick="downloadBackup()" title="Скачать резервную копию всех данных"><i class="ti ti-download"></i> Копия</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'restore-file\').click()" title="Восстановить данные из файла копии"><i class="ti ti-upload"></i> Восстановить</button><button class="btn btn-ghost btn-sm" onclick="forceSyncAll()"><i class="ti ti-cloud-upload"></i> Синхронизировать</button><button class="btn btn-ghost btn-sm" onclick="openSettings()"><i class="ti ti-settings"></i> Настройки</button><button class="btn btn-ghost btn-sm" onclick="openBatchUpdate()"><i class="ti ti-refresh"></i> Обновить все</button><button class="btn btn-primary btn-sm" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button></div></div>';
   if(!lots.length){el.innerHTML=headerBtn+'<div class="empty-state"><div style="font-size:40px">📦</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">Нет лотов</div><div style="font-size:12px">Нажмите «Новый лот»</div></div>';return;}
   lots.forEach(function(l){enrichItems(l.items,l.date,l.secondSeason,l.sellBy);});
   updateRecosBadge();var html=headerBtn+
