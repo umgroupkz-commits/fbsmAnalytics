@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v86</title>
+<title>FBSM — Управление лотами v87</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v86</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v87</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -3797,9 +3797,9 @@ function renderHelp(){
   // 1. START
   '<div class="help-sec" id="h-start"><h2>1. С чего начать — порядок работы</h2>'+
     '<p>Программа управляет остатками одежды: считает наценку, окупаемость и сама подсказывает, где дать скидку, где запустить акцию, а где слить остаток. Товарные данные приходят из 1С по кнопке.</p>'+
-    '<div class="help-step"><div class="help-step-n">1</div><div class="help-step-b"><b>Заведи партию.</b> «Новый лот» — название и <b>сколько денег вложено</b>. Это единственное, чего 1С про партию не знает, а без этого не посчитать ни себестоимость, ни окупаемость.</div></div>'+
-    '<div class="help-step"><div class="help-step-n">2</div><div class="help-step-b"><b>Забери данные из 1С.</b> «Обновить из 1С» → «Загрузить данные». Программа покажет план: какие партии на какие лоты лягут, сколько позиций обновится и сколько новых. Ничего не меняется, пока не нажмёшь «Применить».</div></div>'+
-    '<div class="help-step"><div class="help-step-n">3</div><div class="help-step-b"><b>Привяжи партии, если названия разошлись.</b> Партия в 1С «DKF», а лот у тебя «DKF Пуховички и жилетки» — сами они не сойдутся. В предпросмотре жми «Привязать»; связь запомнится и дальше подхватится сама.</div></div>'+
+    '<div class="help-step"><div class="help-step-n">1</div><div class="help-step-b"><b>Забери данные из 1С.</b> «Обновить из 1С» → «Загрузить данные». Программа покажет план: какие партии на какие лоты лягут, сколько позиций обновится и сколько новых. Ничего не меняется, пока не нажмёшь «Применить».</div></div>'+
+    '<div class="help-step"><div class="help-step-n">2</div><div class="help-step-b"><b>Разбери партии без лота.</b> В плане есть раздел «Партии 1С без лота». Для каждой — два пути: <b>«Привязать»</b> к уже заведённому лоту (если названия разошлись: в 1С «DKF», у нас «DKF Пуховички и жилетки») или <b>«Создать лот»</b>, если партия новая. При создании программа сама перенесёт все позиции, остатки и цены — у тебя спросит только название, <b>сколько вложено</b> и дату поступления.</div></div>'+
+    '<div class="help-step"><div class="help-step-n">3</div><div class="help-step-b"><b>Кнопка «Новый лот» — на случай, когда партии в 1С ещё нет.</b> Например, товар оплачен и едет. Обычно она не нужна: лоты заводятся прямо из плана загрузки.</div></div>'+
     '<div class="help-step"><div class="help-step-n">4</div><div class="help-step-b"><b>Работай на вкладке «Действия».</b> Программа открывается сразу на ней. Наверху строка-итог: сколько позиций требуют решения и на какие деньги. Ниже три группы: ускорить продажи, слить, заработать больше.</div></div>'+
     '<div class="help-step"><div class="help-step-n">5</div><div class="help-step-b"><b>Применяй решения.</b> Кнопки прямо в списке: «Скидка −X%», «Слить», либо отметь галочками несколько позиций (можно из разных лотов) и собери из них акцию.</div></div>'+
     '<div class="help-step"><div class="help-step-n">6</div><div class="help-step-b"><b>Через 1–2 недели снова «Обновить из 1С».</b> Программа сравнит с прошлым разом и скажет по каждой скидке: сработала или надо углублять.</div></div>'+
@@ -3811,7 +3811,7 @@ function renderHelp(){
     '<p>По кнопке «Обновить из 1С» программа забирает <b>справочник товаров, остатки по складам, цены и продажи</b>. Руками это вводить не нужно.</p>'+
     '<h3>Чего в 1С нет и не будет</h3>'+
     '<div class="help-gl">'+
-    '<b>Сколько вложено в партию</b><span>1С знает товар, но не знает, за сколько куплена вся партия. Это вводится руками при создании лота — отсюда считается себестоимость каждой позиции, наценка и окупаемость.</span>'+
+    '<b>Сколько вложено в партию</b><span>1С знает товар, но не знает, за сколько куплена вся партия. Это единственное число, которое программа спросит при создании лота, — отсюда считается себестоимость каждой позиции, наценка и окупаемость. Сами позиции, остатки и цены переносятся автоматически.</span>'+
     '<b>Себестоимость по позициям</b><span>Берётся НЕ из 1С намеренно: там она усреднённая по всей номенклатуре и для нашей задачи неверная. Программа распределяет стоимость партии сама, пропорционально ценам.</span>'+
     '<b>Что считать одной партией</b><span>В 1С партионного учёта нет — партией считается верхняя группа номенклатуры. Если названия групп и лотов разошлись, связь ставится руками один раз.</span>'+
     '<b>Срок «продать до»</b><span>Это ваше решение, а не факт из учёта. Если не задан — программа берёт дату лота плюс 3 месяца и помечает такой срок словом «авто».</span>'+
@@ -4005,7 +4005,9 @@ function renderHelp(){
     '<h3>Не вижу изменений после обновления</h3>'+
     '<p>Это кэш браузера. Жми <b>Ctrl+Shift+R</b> (жёсткая перезагрузка) или открой в режиме инкогнито. Проверь номер версии в шапке (бейдж рядом с логотипом) — он должен совпадать с последней.</p>'+
     '<h3>Партия из 1С не легла на лот</h3>'+
-    '<p>Значит, названия разошлись: в 1С «DKF», а лот назван «DKF Пуховички и жилетки». В предпросмотре загрузки такая партия окажется в списке «без лота» — нажми «Привязать» и выбери лот. Связь запомнится, дальше подхватится сама.</p>'+
+    '<p>Значит, названия разошлись: в 1С «DKF», а лот назван «DKF Пуховички и жилетки». В предпросмотре загрузки такая партия окажется в списке «без лота». Если лот уже есть — «Привязать» (связь запомнится, дальше подхватится сама). Если партия новая — «Создать лот».</p>'+
+    '<h3>Создал лот из 1С, но окупаемость не считается</h3>'+
+    '<p>Значит, при создании оставили стоимость 0. Впишите её в карточке лота — сколько заплачено поставщику за всю партию. Без этого числа нет ни себестоимости, ни наценки, ни окупаемости.</p>'+
     '<h3>После загрузки из 1С продажи не изменились</h3>'+
     '<p>Так и задумано, если 1С не сообщила, за какие дни обмен реально прошёл. Программа предпочитает не тронуть продажи, чем испортить их. Продажи можно догрузить файлом через «Из файлов».</p>'+
     '<h3>Цифры продаж выглядят завышенными</h3>'+
@@ -4479,8 +4481,8 @@ function renderApiPlan(){
 
   if(p.newGroups.length){
     html+='<div style="font-size:12px;font-weight:600;margin:14px 0 4px;color:var(--accent2)">Партии 1С без лота ('+p.newGroups.length+')</div>'+
-      '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Эти группы есть в 1С, но не привязаны ни к одному лоту. Если лот для партии уже заведён (названия часто отличаются: «DKF» в 1С и «DKF Пуховички и жилетки» у нас) — выберите его, и связь запомнится навсегда.</div>'+
-      '<div style="overflow-x:auto;max-height:260px;overflow-y:auto"><table><thead><tr><th>Партия в 1С</th><th style="text-align:right">Позиций</th><th style="text-align:right">Штук</th><th>Привязать к лоту</th></tr></thead><tbody>';
+      '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Эти группы есть в 1С, но не привязаны ни к одному лоту. Если лот уже заведён (названия часто отличаются: «DKF» в 1С и «DKF Пуховички и жилетки» у нас) — выберите его слева, связь запомнится навсегда. Если это новая партия — жмите «Создать лот»: программа заведёт его со всеми позициями, останется указать, сколько вложено.</div>'+
+      '<div style="overflow-x:auto;max-height:260px;overflow-y:auto"><table><thead><tr><th>Партия в 1С</th><th style="text-align:right">Позиций</th><th style="text-align:right">Штук</th><th>Привязать к лоту</th><th>или</th></tr></thead><tbody>';
     p.newGroups.sort(function(a,b){return b.qty-a.qty;}).forEach(function(g,gi){
       // Подсказка: лот, чьё название начинается с имени партии либо содержит его
       var gl=g.group.toLowerCase();
@@ -4497,7 +4499,8 @@ function renderApiPlan(){
       html+='<tr><td style="font-weight:500">'+esc(g.group)+(suggest?' <span style="font-size:9px;color:var(--green)">похоже на «'+esc(suggest.name)+'»</span>':'')+'</td>'+
         '<td class="mono" style="text-align:right">'+g.items+'</td>'+
         '<td class="mono" style="text-align:right">'+fmt(g.qty)+'</td>'+
-        '<td><select id="bind-'+gi+'" data-group="'+esc(g.group)+'" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;max-width:230px">'+opts+'</select></td></tr>';
+        '<td><select id="bind-'+gi+'" data-group="'+esc(g.group)+'" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;max-width:230px">'+opts+'</select></td>'+
+        '<td><button class="btn btn-success btn-sm" onclick="apiCreateLotFromGroup('+gi+')"><i class="ti ti-plus"></i> Создать лот</button></td></tr>';
     });
     html+='</tbody></table></div>'+
       '<div style="margin-top:6px;text-align:right"><button class="btn btn-warn btn-sm" onclick="apiBindGroups()"><i class="ti ti-link"></i> Привязать выбранные и пересчитать</button></div>';
@@ -4509,6 +4512,48 @@ function renderApiPlan(){
       '<span style="font-size:11px;color:var(--orange)">Ни одна партия 1С не привязана к лотам — применять нечего</span>')+
     '</div>';
   document.getElementById('api-body').innerHTML=html;
+}
+// Создание лота прямо из партии 1С: позиции, остатки и цены берутся из загрузки,
+// от человека нужно только то, чего в 1С нет — сколько денег вложено в партию.
+function apiCreateLotFromGroup(gi){
+  var p=_apiPlan;if(!p)return;
+  var g=p.newGroups[gi];if(!g){alert('Партия не найдена — обновите план');return;}
+  var name=prompt('Название лота (как вам удобно его называть):',g.group);
+  if(name===null)return;
+  name=(name||'').trim();
+  if(!name){alert('Название пустое — лот не создан');return;}
+  if(lots.some(function(l){return l.name===name;})){
+    if(!confirm('Лот с названием «'+name+'» уже есть. Всё равно создать ещё один?\n\nЕсли это та же партия — лучше отмените и привяжите её к существующему лоту слева.'))return;
+  }
+  var costStr=prompt('Сколько вложено в партию «'+name+'», ₸?\n\n'+
+    'Это единственное, чего 1С про партию не знает. Без стоимости не посчитать ни себестоимость, ни наценку, ни окупаемость.\n\n'+
+    'Можно оставить 0 и указать позже в карточке лота.','0');
+  if(costStr===null)return;
+  var cost=parseFloat(String(costStr).replace(/\s/g,'').replace(/ /g,'').replace(',','.'))||0;
+  var dateStr=prompt('Когда партия поступила? (ГГГГ-ММ-ДД)\n\n'+
+    'От этой даты считается возраст остатка и лестница скидок. Если срок продажи не задать, он будет посчитан как эта дата плюс '+autoSellByMonths()+' мес.',
+    new Date().toISOString().slice(0,10));
+  if(dateStr===null)return;
+  dateStr=(dateStr||'').trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)||isNaN(new Date(dateStr).getTime())){
+    alert('Дата не распознана — лот не создан. Нужен вид ГГГГ-ММ-ДД, например 2026-08-05.');return;
+  }
+  autoSnapshot('перед созданием лота из 1С');
+  var made=buildLotsFromBatch(
+    [{name:name,groups:[g.group],cost:cost,date:dateStr}],
+    p.groups, p.priceMap, p.salesUsable?p.salesData:null);
+  if(!made.length){alert('Не удалось собрать позиции партии — лот не создан');return;}
+  var lot=made[0];
+  lots.push(lot);
+  sbUpsert('lots',lot.id,lot);
+  save();
+  logAction('lot','Лот «'+name+'» создан из партии 1С «'+g.group+'»',{lotName:name});
+  // План пересобираем: партия теперь принадлежит лоту и уйдёт из списка «без лота»
+  _apiPlan=apiBuildPlan(_apiRawData);
+  renderApiPlan();
+  updateRecosBadge();
+  alert('✓ Лот «'+name+'» создан: позиций '+(lot.items||[]).length+', штук '+fmt(g.qty)+
+    (cost>0?'':'\n\n⚠ Стоимость не указана — окупаемость и наценка считаться не будут. Впишите её в карточке лота.'));
 }
 // Привязка партий 1С к существующим лотам: запоминаем в sourceGroups и строим план заново
 function apiBindGroups(){
