@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v85</title>
+<title>FBSM — Управление лотами v86</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -165,19 +165,25 @@ tr:hover td{background:#1a2030}
   <input type="password" id="auth-pwd" class="inp" placeholder="Пароль" autocomplete="current-password" style="max-width:260px" onkeydown="if(event.key==='Enter')doLogin()">
   <button class="btn btn-primary" id="auth-btn" onclick="doLogin()" style="min-width:120px;justify-content:center">Войти</button>
   <div id="pwd-error" style="font-size:11px;color:var(--red);min-height:14px;max-width:280px;text-align:center"></div>
-  <div style="font-size:10px;color:var(--text3);max-width:280px;text-align:center">Доступ только для сотрудников из белого списка. Пароль забыт — обратитесь к администратору.</div>
+  <div style="display:flex;gap:14px;align-items:center">
+    <button class="btn btn-ghost btn-sm" id="auth-reg" onclick="doRegister()">Первый вход — задать пароль</button>
+    <button class="btn btn-ghost btn-sm" onclick="doResetPassword()">Забыли пароль</button>
+  </div>
+  <div style="font-size:10px;color:var(--text3);max-width:320px;text-align:center;line-height:1.5">Входите по своей рабочей почте. Видеть данные может только тот, чья почта внесена в список доступа — его ведёт владелец в разделе «Доступ».</div>
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v85</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v86</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
     <span id="auth-user" style="font-size:10px;color:var(--text3);align-self:center;margin-right:2px"></span>
+    <button class="btn btn-ghost" id="btn-access" onclick="openAccess()" title="Кто имеет доступ" style="display:none"><i class="ti ti-users"></i></button>
     <button class="btn btn-ghost" onclick="changePassword()" title="Сменить пароль"><i class="ti ti-key"></i></button>
     <button class="btn btn-ghost" onclick="doLogout()" title="Выйти"><i class="ti ti-logout"></i></button>
-    <button class="btn btn-ghost" onclick="openBatchUpdate()"><i class="ti ti-refresh"></i> Обновить все</button>
-    <button class="btn btn-primary" onclick="openCreateLot()"><i class="ti ti-plus"></i> Новый лот</button>
+    <button class="btn btn-ghost" onclick="openBatchUpdate()" title="Запасной путь: загрузка выгрузок .xlsx, если 1С недоступна"><i class="ti ti-file-spreadsheet"></i> Из файлов</button>
+    <button class="btn btn-ghost" onclick="openCreateLot()" title="Завести партию: название и сколько денег вложено"><i class="ti ti-plus"></i> Новый лот</button>
+    <button class="btn btn-primary" onclick="openApiExchange()" title="Забрать остатки, цены и продажи из 1С"><i class="ti ti-refresh"></i> Обновить из 1С</button>
   </div>
 </div>
 <div class="tabs">
@@ -537,6 +543,27 @@ tr:hover td{background:#1a2030}
 </div></div>
 
 <!-- MODAL SETTINGS -->
+<div id="modal-access" class="modal-overlay" style="display:none"><div class="modal" style="max-width:620px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+    <div style="flex:1;font-size:15px;font-weight:700">👥 Кто имеет доступ</div>
+    <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-access')"><i class="ti ti-x"></i></button>
+  </div>
+  <div style="font-size:11px;color:var(--text3);margin-bottom:12px;line-height:1.6">
+    Данные видит только тот, чья почта в этом списке. Зарегистрироваться на сайте может кто угодно,
+    но без записи здесь он не увидит ничего — проверка стоит в самой базе, а не в браузере.
+  </div>
+  <div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:12px">
+    <div class="lbl" style="margin-bottom:8px">Добавить сотрудника</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input class="inp inp-sm" id="access-email" type="email" placeholder="почта сотрудника" style="flex:1;min-width:200px">
+      <input class="inp inp-sm" id="access-note" type="text" placeholder="кто это (например: закупки)" style="flex:1;min-width:160px">
+      <button class="btn btn-primary btn-sm" onclick="accessAdd()"><i class="ti ti-plus"></i> Добавить</button>
+    </div>
+    <div style="font-size:9px;color:var(--text3);margin-top:8px">После добавления сотрудник открывает адрес программы, вводит эту почту, придумывает себе пароль и нажимает «Первый вход — задать пароль». Пароль он задаёт сам — вам его знать не нужно.</div>
+  </div>
+  <div id="access-list" style="overflow-x:auto"></div>
+</div></div>
+
 <div id="modal-settings" class="modal-overlay" style="display:none"><div class="modal" style="max-width:760px">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
     <div style="flex:1;font-size:15px;font-weight:700">⚙ Настройки аналитики</div>
@@ -730,6 +757,65 @@ async function doLogin(){
     btn.disabled=false;btn.textContent='Войти';
   }
 }
+// ПЕРВЫЙ ВХОД: человек сам задаёт себе пароль. Это безопасно — данные закрыты
+// белым списком: зарегистрироваться может кто угодно, увидеть что-то — только тот,
+// чью почту владелец внёс в список доступа.
+async function doRegister(){
+  var email=(document.getElementById('auth-email').value||'').trim();
+  var pwd=document.getElementById('auth-pwd').value||'';
+  if(!email){authErr('Введите свою рабочую почту');return;}
+  if(!pwd||pwd.length<8){authErr('Придумайте пароль минимум из 8 символов и введите его в поле «Пароль»');return;}
+  var btn=document.getElementById('auth-reg');
+  btn.disabled=true;authErr('');
+  try{
+    var r=await getSB().auth.signUp({email:email,password:pwd,
+      options:{emailRedirectTo:location.origin+location.pathname}});
+    if(r.error){
+      authErr(/already registered/i.test(r.error.message||'')
+        ? 'Такая почта уже зарегистрирована — просто войдите, а если пароль забыт, нажмите «Забыли пароль».'
+        : ('Не получилось: '+r.error.message));
+      return;
+    }
+    document.getElementById('auth-pwd').value='';
+    alert('На почту '+email+' отправлено письмо со ссылкой для подтверждения.\n\n'+
+          'Откройте письмо и нажмите ссылку — после этого входите с той почтой и паролем, что задали.\n\n'+
+          'Если письма нет — проверьте «Спам».');
+  }catch(e){ authErr('Нет связи с сервером.'); }
+  finally{ btn.disabled=false; }
+}
+// ЗАБЫЛИ ПАРОЛЬ: ссылка на смену приходит письмом, администратор не нужен.
+async function doResetPassword(){
+  var email=(document.getElementById('auth-email').value||'').trim();
+  if(!email){authErr('Введите почту, на которую отправить ссылку');return;}
+  authErr('');
+  try{
+    var r=await getSB().auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+    if(r.error){authErr('Не получилось: '+r.error.message);return;}
+    alert('На почту '+email+' отправлена ссылка для смены пароля.\n\n'+
+          'Откройте письмо, нажмите ссылку — программа сама попросит новый пароль.\n\n'+
+          'Если письма нет — проверьте «Спам».');
+  }catch(e){ authErr('Нет связи с сервером.'); }
+}
+// Переход по ссылке из письма: Supabase кладёт временную сессию и сообщает об этом.
+// Ловим и сразу просим новый пароль, иначе человек попадёт внутрь и забудет его задать.
+function watchPasswordRecovery(){
+  try{
+    getSB().auth.onAuthStateChange(function(event){
+      if(event!=='PASSWORD_RECOVERY')return;
+      showGate(false);
+      setTimeout(async function(){
+        var np=prompt('Задайте новый пароль (минимум 8 символов):');
+        if(np===null||np.length<8){alert('Пароль не изменён — он должен быть минимум из 8 символов. Нажмите ссылку из письма ещё раз.');return;}
+        var np2=prompt('Повторите новый пароль:');
+        if(np2!==np){alert('Пароли не совпадают — пароль не изменён.');return;}
+        var r=await getSB().auth.updateUser({password:np});
+        if(r.error){alert('Не удалось сменить пароль: '+r.error.message);return;}
+        alert('✓ Пароль изменён. Теперь входите с ним.');
+      },200);
+    });
+  }catch(e){}
+}
+
 // Загрузка данных выполняется только после успешного входа
 async function afterLogin(){
   var u=null;
@@ -737,6 +823,8 @@ async function afterLogin(){
   var el=document.getElementById('auth-user');
   if(el&&u)el.textContent=u.email;
   if(u)window._authEmail=u.email;   // подписывать записи журнала автором
+  // Кнопка «Доступ» — только владельцу (в базе это тоже проверяется, здесь только вид)
+  var ab=document.getElementById('btn-access');if(ab)ab.style.display=isOwner()?'':'none';
   await initFromSupabase();
 }
 async function initAuth(){
@@ -753,11 +841,61 @@ async function initAuth(){
     renderActivePage();checkPromoExpiry();updateRecosBadge();
     return;
   }
+  watchPasswordRecovery();   // до проверки сессии: ссылка из письма приходит именно сюда
   var sess=null;
   try{var s=await getSB().auth.getSession();sess=s&&s.data?s.data.session:null;}catch(e){}
   if(sess){showGate(false);await afterLogin();}
   else{showGate(true);} // до входа ничего не рендерим
 }
+// ===== ДОСТУП: кто может видеть данные =====
+// Список ведёт только владелец (проверка в самой базе, не в браузере).
+var OWNER_EMAIL='umgroup.kz@gmail.com';
+function isOwner(){return (window._authEmail||'').toLowerCase()===OWNER_EMAIL;}
+async function openAccess(){
+  document.getElementById('modal-access').style.display='flex';
+  await renderAccess();
+}
+async function renderAccess(){
+  var box=document.getElementById('access-list');
+  box.innerHTML='<div style="font-size:11px;color:var(--text3)">Загружаю…</div>';
+  try{
+    var r=await getSB().from('app_access').select('email,note,added_at').order('added_at');
+    if(r.error){box.innerHTML='<div style="font-size:11px;color:var(--red)">Не удалось прочитать список: '+esc(r.error.message)+'</div>';return;}
+    var rows=r.data||[];
+    var h='<table><thead><tr><th>Почта</th><th>Кто это</th><th>Добавлен</th><th></th></tr></thead><tbody>';
+    rows.forEach(function(x){
+      var own=(x.email||'').toLowerCase()===OWNER_EMAIL;
+      h+='<tr><td style="font-weight:500">'+esc(x.email)+'</td><td style="color:var(--text3)">'+esc(x.note||'—')+'</td>'+
+         '<td class="mono" style="font-size:10px">'+String(x.added_at||'').slice(0,10)+'</td>'+
+         '<td>'+(own?'<span style="font-size:9px;color:var(--text3)">владелец</span>'
+                    :'<button class="btn btn-danger btn-sm" onclick="accessRemove(\''+esc(x.email)+'\')">Убрать</button>')+'</td></tr>';
+    });
+    box.innerHTML=h+'</tbody></table>';
+  }catch(e){ box.innerHTML='<div style="font-size:11px;color:var(--red)">Нет связи с сервером</div>'; }
+}
+async function accessAdd(){
+  var em=(document.getElementById('access-email').value||'').trim().toLowerCase();
+  var nt=(document.getElementById('access-note').value||'').trim();
+  if(!em||em.indexOf('@')<0){alert('Введите почту сотрудника');return;}
+  try{
+    var r=await getSB().from('app_access').insert({email:em,note:nt||null});
+    if(r.error){alert('Не удалось добавить: '+r.error.message);return;}
+    document.getElementById('access-email').value='';document.getElementById('access-note').value='';
+    logAction('access','Доступ открыт: '+em);
+    await renderAccess();
+    alert('✓ '+em+' внесён в список доступа.\n\nТеперь сотрудник открывает адрес программы, вводит эту почту, придумывает пароль и нажимает «Первый вход — задать пароль». На почту придёт письмо-подтверждение.');
+  }catch(e){alert('Нет связи с сервером');}
+}
+async function accessRemove(email){
+  if(!confirm('Закрыть доступ для '+email+'?\n\nЧеловек останется зарегистрированным, но данных больше не увидит.'))return;
+  try{
+    var r=await getSB().from('app_access').delete().eq('email',email);
+    if(r.error){alert('Не удалось убрать: '+r.error.message);return;}
+    logAction('access','Доступ закрыт: '+email);
+    await renderAccess();
+  }catch(e){alert('Нет связи с сервером');}
+}
+
 async function doLogout(){
   if(!confirm('Выйти из системы? Локальные данные останутся на этом устройстве.'))return;
   try{await getSB().auth.signOut();}catch(e){}
@@ -3641,34 +3779,54 @@ function renderHelp(){
 
   '<div class="help-toc"><div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text2)">📑 Содержание</div>'+
     '<a onclick="document.getElementById(\'h-start\').scrollIntoView({behavior:\'smooth\'})">1. С чего начать — порядок работы по шагам</a>'+
-    '<a onclick="document.getElementById(\'h-files\').scrollIntoView({behavior:\'smooth\'})">2. Загрузка файлов из 1С</a>'+
+    '<a onclick="document.getElementById(\'h-1c\').scrollIntoView({behavior:\'smooth\'})">2. Откуда берутся данные: 1С и что она НЕ знает</a>'+
+    '<a onclick="document.getElementById(\'h-files\').scrollIntoView({behavior:\'smooth\'})">2а. Загрузка из файлов — запасной путь</a>'+
     '<a onclick="document.getElementById(\'h-params\').scrollIntoView({behavior:\'smooth\'})">3. Параметры лота</a>'+
     '<a onclick="document.getElementById(\'h-metrics\').scrollIntoView({behavior:\'smooth\'})">4. Как читать показатели</a>'+
     '<a onclick="document.getElementById(\'h-disc\').scrollIntoView({behavior:\'smooth\'})">5. Логика скидок (лестница, периоды)</a>'+
     '<a onclick="document.getElementById(\'h-liq\').scrollIntoView({behavior:\'smooth\'})">6. Слив остатков</a>'+
     '<a onclick="document.getElementById(\'h-promo\').scrollIntoView({behavior:\'smooth\'})">7. Акции (временные, смешанные)</a>'+
-    '<a onclick="document.getElementById(\'h-recos\').scrollIntoView({behavior:\'smooth\'})">8. Вкладка Рекомендации</a>'+
-    '<a onclick="document.getElementById(\'h-settings\').scrollIntoView({behavior:\'smooth\'})">9. Настройки</a>'+
-    '<a onclick="document.getElementById(\'h-flow\').scrollIntoView({behavior:\'smooth\'})">10. Шпаргалка: какое действие выбрать</a>'+
-    '<a onclick="document.getElementById(\'h-gloss\').scrollIntoView({behavior:\'smooth\'})">11. Глоссарий</a>'+
-    '<a onclick="document.getElementById(\'h-trouble\').scrollIntoView({behavior:\'smooth\'})">12. Если что-то пошло не так</a>'+
+    '<a onclick="document.getElementById(\'h-recos\').scrollIntoView({behavior:\'smooth\'})">8. Вкладка «Действия»</a>'+
+    '<a onclick="document.getElementById(\'h-access\').scrollIntoView({behavior:\'smooth\'})">9. Вход и доступ сотрудников</a>'+
+    '<a onclick="document.getElementById(\'h-settings\').scrollIntoView({behavior:\'smooth\'})">10. Настройки</a>'+
+    '<a onclick="document.getElementById(\'h-flow\').scrollIntoView({behavior:\'smooth\'})">11. Шпаргалка: какое действие выбрать</a>'+
+    '<a onclick="document.getElementById(\'h-gloss\').scrollIntoView({behavior:\'smooth\'})">12. Глоссарий</a>'+
+    '<a onclick="document.getElementById(\'h-trouble\').scrollIntoView({behavior:\'smooth\'})">13. Если что-то пошло не так</a>'+
   '</div>'+
 
   // 1. START
   '<div class="help-sec" id="h-start"><h2>1. С чего начать — порядок работы</h2>'+
-    '<p>Система помогает управлять остатками одежды: считает наценку, окупаемость, и сама подсказывает где дать скидку, где запустить акцию, а где слить остаток. Вот пошаговый порядок:</p>'+
-    '<div class="help-step"><div class="help-step-n">1</div><div class="help-step-b"><b>Создай лот.</b> Жми «Новый лот». Лот — это партия товара (например, завоз футболок). Загрузи три файла из 1С: остатки, прайс, продажи.</div></div>'+
-    '<div class="help-step"><div class="help-step-n">2</div><div class="help-step-b"><b>Укажи параметры.</b> Стоимость лота (сколько заплатил поставщику), всего единиц (сколько закупил), цель прибыли, дату поступления и «продать до». Это основа всех расчётов.</div></div>'+
-    '<div class="help-step"><div class="help-step-n">3</div><div class="help-step-b"><b>Проверь предпросмотр.</b> Система покажет наценку, маржу, себестоимость по позициям. Убедись что цифры адекватные, сохрани.</div></div>'+
-    '<div class="help-step"><div class="help-step-n">4</div><div class="help-step-b"><b>Смотри Рекомендации.</b> Зайди на вкладку «Рекомендации» — там собрано всё что требует действия по всем лотам: что слить, на что дать скидку, что в акцию.</div></div>'+
-    '<div class="help-step"><div class="help-step-n">5</div><div class="help-step-b"><b>Применяй действия.</b> Жми кнопки прямо в списке: «Слить», «Скидка −X%», или отмечай позиции галочками и «Создать акцию».</div></div>'+
-    '<div class="help-step"><div class="help-step-n">6</div><div class="help-step-b"><b>Через 1-2 недели загрузи свежие продажи.</b> Открой лот → «Обновить лот» → новые файлы. Система пересчитает и подскажет следующий шаг: скидка сработала или надо углубить.</div></div>'+
-    '<div class="help-tip">💡 Главный принцип: поставил скидку → дай ей поработать → загрузил продажи → система скажет помогло или нет. Это цикл, повторяется пока товар не распродан.</div>'+
+    '<p>Программа управляет остатками одежды: считает наценку, окупаемость и сама подсказывает, где дать скидку, где запустить акцию, а где слить остаток. Товарные данные приходят из 1С по кнопке.</p>'+
+    '<div class="help-step"><div class="help-step-n">1</div><div class="help-step-b"><b>Заведи партию.</b> «Новый лот» — название и <b>сколько денег вложено</b>. Это единственное, чего 1С про партию не знает, а без этого не посчитать ни себестоимость, ни окупаемость.</div></div>'+
+    '<div class="help-step"><div class="help-step-n">2</div><div class="help-step-b"><b>Забери данные из 1С.</b> «Обновить из 1С» → «Загрузить данные». Программа покажет план: какие партии на какие лоты лягут, сколько позиций обновится и сколько новых. Ничего не меняется, пока не нажмёшь «Применить».</div></div>'+
+    '<div class="help-step"><div class="help-step-n">3</div><div class="help-step-b"><b>Привяжи партии, если названия разошлись.</b> Партия в 1С «DKF», а лот у тебя «DKF Пуховички и жилетки» — сами они не сойдутся. В предпросмотре жми «Привязать»; связь запомнится и дальше подхватится сама.</div></div>'+
+    '<div class="help-step"><div class="help-step-n">4</div><div class="help-step-b"><b>Работай на вкладке «Действия».</b> Программа открывается сразу на ней. Наверху строка-итог: сколько позиций требуют решения и на какие деньги. Ниже три группы: ускорить продажи, слить, заработать больше.</div></div>'+
+    '<div class="help-step"><div class="help-step-n">5</div><div class="help-step-b"><b>Применяй решения.</b> Кнопки прямо в списке: «Скидка −X%», «Слить», либо отметь галочками несколько позиций (можно из разных лотов) и собери из них акцию.</div></div>'+
+    '<div class="help-step"><div class="help-step-n">6</div><div class="help-step-b"><b>Через 1–2 недели снова «Обновить из 1С».</b> Программа сравнит с прошлым разом и скажет по каждой скидке: сработала или надо углублять.</div></div>'+
+    '<div class="help-tip">💡 Главный принцип: поставил скидку → дай ей поработать → обновил данные → программа скажет, помогло или нет. Это цикл, он повторяется, пока товар не распродан.</div>'+
   '</div>'+
 
-  // 2. FILES
-  '<div class="help-sec" id="h-files"><h2>2. Загрузка файлов из 1С</h2>'+
-    '<p>Нужны три выгрузки из 1С Розница (формат .xlsx):</p>'+
+  // 2. ДАННЫЕ ИЗ 1С
+  '<div class="help-sec" id="h-1c"><h2>2. Откуда берутся данные: 1С и что она НЕ знает</h2>'+
+    '<p>По кнопке «Обновить из 1С» программа забирает <b>справочник товаров, остатки по складам, цены и продажи</b>. Руками это вводить не нужно.</p>'+
+    '<h3>Чего в 1С нет и не будет</h3>'+
+    '<div class="help-gl">'+
+    '<b>Сколько вложено в партию</b><span>1С знает товар, но не знает, за сколько куплена вся партия. Это вводится руками при создании лота — отсюда считается себестоимость каждой позиции, наценка и окупаемость.</span>'+
+    '<b>Себестоимость по позициям</b><span>Берётся НЕ из 1С намеренно: там она усреднённая по всей номенклатуре и для нашей задачи неверная. Программа распределяет стоимость партии сама, пропорционально ценам.</span>'+
+    '<b>Что считать одной партией</b><span>В 1С партионного учёта нет — партией считается верхняя группа номенклатуры. Если названия групп и лотов разошлись, связь ставится руками один раз.</span>'+
+    '<b>Срок «продать до»</b><span>Это ваше решение, а не факт из учёта. Если не задан — программа берёт дату лота плюс 3 месяца и помечает такой срок словом «авто».</span>'+
+    '</div>'+
+    '<h3>Как устроена загрузка</h3>'+
+    '<p>Сначала <b>план</b>, потом <b>применение</b>. Программа показывает, что именно изменится, и ждёт подтверждения. Повторная загрузка тех же данных ничего не портит — результат тот же.</p>'+
+    '<p>Продажи применяются, только если 1С сообщила, за какие дни обмен реально прошёл. Если этих сведений нет, продажи и выручка остаются нетронутыми — лучше не тронуть, чем испортить.</p>'+
+    '<div class="help-tip">💡 Перед применением сверься с планом: если партия, которую ждёшь, оказалась в списке «без лота» — значит, название разошлось, и её надо привязать вручную.</div>'+
+    '<div class="help-warn">⚠ Приход товара и скидки, проставленные в 1С, пока не передаются — программист их ещё делает. Поэтому «оприходовано всего» по партии вводится руками, а скидки из 1С в программу автоматически не попадают.</div>'+
+  '</div>'+
+
+  // 2а. FILES
+  '<div class="help-sec" id="h-files"><h2>2а. Загрузка из файлов — запасной путь</h2>'+
+    '<div class="help-tip">💡 Обычно это не нужно: данные приходят из 1С по кнопке. Файлы остаются на случай, когда 1С недоступна, а также для того, что 1С пока не отдаёт.</div>'+
+    '<p>Кнопка «Из файлов» в шапке. Нужны выгрузки из 1С Розница (формат .xlsx):</p>'+
     '<ul>'+
     '<li><b>Остатки (обязательно)</b> — Склад → Остатки. Что сейчас лежит на складе по позициям.</li>'+
     '<li><b>Прайс (обязательно)</b> — НСИ → Прайс-лист. Цены продажи.</li>'+
@@ -3688,7 +3846,7 @@ function renderHelp(){
     '<b>Всего единиц</b><span>Сколько штук закупил всего. Если в 1С оприходована не вся партия — система учтёт долю. Пусто = равно оприходованному.</span>'+
     '<b>Цель прибыли %</b><span>Желаемая наценка к стоимости лота. Например 100% = хочешь удвоить вложенное. С ней сравнивается прогноз.</span>'+
     '<b>Дата поступления</b><span>Когда товар реально пришёл. От неё считается возраст и лестница скидок. ВАЖНО: ставь реальную, иначе скидки посчитаются неверно.</span>'+
-    '<b>Продать до</b><span>Дедлайн распродажи лота. Система сравнивает «успеешь ли распродать остаток к этой дате» и предлагает скидки если отстаёшь.</span>'+
+    '<b>Продать до</b><span>Дедлайн распродажи лота. Программа сравнивает, успеваешь ли распродать остаток к этой дате, и предлагает скидки, если отстаёшь. <b>Если не заполнить</b> — берётся дата лота плюс 3 месяца, и такой срок помечается словом «авто». Твоя дата всегда главнее автоматической.</span>'+
     '<b>Прошлый сезон</b><span>Галочка для прошлогодних остатков. Включает агрессивный режим: скидки раньше, темп по последним неделям, большие скидки в постоянные.</span>'+
     '</div>'+
   '</div>'+
@@ -3775,40 +3933,60 @@ function renderHelp(){
   '</div>'+
 
   // 8. RECOS
-  '<div class="help-sec" id="h-recos"><h2>8. Вкладка Рекомендации</h2>'+
-    '<p>Общий список того что требует действия <b>по всем лотам сразу</b>. Зашёл — отработал всё разом, не заходя в каждый лот.</p>'+
-    '<p>Цифра на вкладке (бейдж) — сколько всего позиций ждут решения. Внутри — четыре раздела:</p>'+
+  '<div class="help-sec" id="h-recos"><h2>8. Вкладка «Действия»</h2>'+
+    '<p>Программа открывается сразу здесь. Это всё, что требует решения <b>по всем лотам сразу</b> — не надо заходить в каждый лот.</p>'+
+    '<h3>Строка-итог наверху</h3>'+
+    '<p>Сколько позиций требуют решения, сколько это штук и денег по прайсу, и сколько позиций можно наоборот <b>подорожать</b>. Ниже — предупреждение о лотах, где срок продажи взят автоматически.</p>'+
+    '<h3>Три группы — по тому, что вы делаете</h3>'+
     '<ul>'+
-    '<li><b>📉 Углубить скидку</b> — скидки которые не помогли.</li>'+
-    '<li><b>🔥 Слить</b> — мёртвый сток и маленькие хвосты.</li>'+
-    '<li><b>🏷 Кандидаты в акцию</b> — большие остатки, с галочками для смешанной акции.</li>'+
-    '<li><b>🏷 Постоянные скидки</b> — маленькие хвосты.</li>'+
+    '<li><b>Ускорить продажи</b> — товар лежит дольше, чем должен. Внутри: <i>постоянные скидки</i> (небольшие, ставятся ценником), <i>кандидаты в акцию</i> (большие остатки — глубокая скидка на срок), <i>углубить</i> (скидка стоит, но не помогает).</li>'+
+    '<li><b>Слить</b> — скидки уже не помогут: мёртвый сток и маленькие хвосты. Освобождаем деньги и место.</li>'+
+    '<li><b>Заработать больше</b> — ходовой товар кончится задолго до срока. Цену можно поднять.</li>'+
     '</ul>'+
-    '<p>Кнопки действий прямо в строке. Фильтр по лоту сверху — смотреть все или один. Клик на название лота открывает сам лот.</p>'+
+    '<h3>Как работать</h3>'+
+    '<p>Кнопки действий прямо в строке. Галочками можно отметить несколько позиций — <b>в том числе из разных лотов</b> — и собрать из них одну акцию или применить скидку разом. Shift выделяет диапазон. Фильтр по лоту сверху. Клик на название лота открывает сведения о нём.</p>'+
+    '<p>В кандидатах в акцию есть колонка <b>«Прогноз акции»</b>: за сколько дней и сколько штук уйдёт. Пометка «✓факт» означает, что прогноз построен на результатах ваших прошлых акций, а не на общей формуле.</p>'+
+    '<p>Кнопка <b>«Разбор от ИИ»</b> — второе мнение к машинным рекомендациям. Программа считает по формулам; ИИ смотрит на ту же картину целиком и может заметить перекосы по размерам, связь между партиями, риски сроков. Это мнение, а не расчёт — цифры остаются свои.</p>'+
   '</div>'+
 
-  // 9. SETTINGS
-  '<div class="help-sec" id="h-settings"><h2>9. Настройки</h2>'+
-    '<p>Кнопка «Настройки» на главной. Основные параметры:</p>'+
+  // 9. ACCESS
+  '<div class="help-sec" id="h-access"><h2>9. Вход и доступ сотрудников</h2>'+
+    '<h3>Как войти</h3>'+
+    '<p>Вход по <b>рабочей почте и своему паролю</b>. Прежний общий пароль «8899» отменён — он ничего не защищал.</p>'+
+    '<p>Забыли пароль — на экране входа кнопка <b>«Забыли пароль»</b>: введите почту, придёт письмо со ссылкой, программа сама попросит новый пароль. Администратор для этого не нужен.</p>'+
+    '<h3>Как добавить сотрудника</h3>'+
+    '<div class="help-step"><div class="help-step-n">1</div><div class="help-step-b">Владелец открывает <b>👥 «Доступ»</b> в шапке и вносит почту сотрудника.</div></div>'+
+    '<div class="help-step"><div class="help-step-n">2</div><div class="help-step-b">Сотрудник открывает адрес программы, вводит эту почту, придумывает <b>себе</b> пароль и жмёт «Первый вход — задать пароль».</div></div>'+
+    '<div class="help-step"><div class="help-step-n">3</div><div class="help-step-b">На почту приходит письмо-подтверждение. Перешёл по ссылке — можно работать.</div></div>'+
+    '<div class="help-tip">💡 Пароль сотрудника вы не знаете и знать не должны — он задаёт его сам. Ваше дело только список: кто имеет доступ.</div>'+
+    '<h3>Как закрыть доступ</h3>'+
+    '<p>В том же окне «Доступ» — «Убрать». Человек остаётся зарегистрированным, но данных больше не видит. Проверка стоит в самой базе, а не в браузере: даже зная адрес программы, без записи в списке он не получит ничего.</p>'+
+    '<div class="help-warn">⚠ Список доступа ведёт только владелец. Сотрудник из списка не может добавить туда коллегу — иначе доступ расползётся.</div>'+
+  '</div>'+
+
+  // 10. SETTINGS
+  '<div class="help-sec" id="h-settings"><h2>10. Настройки</h2>'+
+    '<p>Кнопка «Настройки». Наверху блок <b>«Главное»</b> — четыре числа, которые действительно приходится крутить:</p>'+
     '<div class="help-gl">'+
-    '<b>Лестница уценки</b><span>Пороги недель (4,7,10,12) и скидки на них (0,15,30,50,70). Под свой темп.</span>'+
-    '<b>Акция не помогла</b><span>% остатка, ниже которого акция считается провальной.</span>'+
-    '<b>Слив: мин. цена</b><span>До скольки % от себестоимости опускать при сливе (по умолч. 50%).</span>'+
-    '<b>Маленький остаток → скидка</b><span>Порог (шт) ниже которого товар идёт в постоянную скидку, а не акцию (по умолч. 20).</span>'+
-    '<b>Цель прибыли</b><span>Дефолтная наценка для новых лотов.</span>'+
-    '<b>Буфер наценки</b><span>Запас над целью для зелёного статуса.</span>'+
+    '<b>Автоматический срок</b><span>Если срок продажи у лота не задан, он считается как дата лота плюс это число месяцев (по умолчанию 3). Ноль — не назначать автоматически. Отсчёт идёт от даты лота, а не от сегодня: иначе срок уезжал бы вперёд каждый день и никогда бы не наступал.</span>'+
+    '<b>Порог акции</b><span>Скидка выше этой оформляется акцией на срок, ниже — обычным ценником (по умолчанию 30%).</span>'+
+    '<b>Глубина слива</b><span>Ниже какой доли себестоимости не опускаться при сливе (по умолчанию 50%).</span>'+
+    '<b>Маленький остаток</b><span>Сколько штук считать хвостом (по умолчанию 5).</span>'+
     '</div>'+
-    '<div class="help-tip">💡 Дефолты — это стандарт индустрии для аутлета. Подкручивай по мере накопления своего опыта.</div>'+
+    '<p>Всё остальное — под <b>«Тонкой настройкой»</b>, она свёрнута: лестницы скидок, пороги ABCD, зоны возраста остатка, порог «поднять цену». Туда обычно не заходят.</p>'+
+    '<div class="help-tip">💡 Значения по умолчанию — стандарт для аутлета. Подкручивайте по мере накопления своего опыта, а не заранее.</div>'+
   '</div>'+
 
-  // 10. FLOW
-  '<div class="help-sec" id="h-flow"><h2>10. Шпаргалка: какое действие выбрать</h2>'+
+  // 11. FLOW
+  '<div class="help-sec" id="h-flow"><h2>11. Шпаргалка: какое действие выбрать</h2>'+
     '<div class="help-flow">Позиция не продаётся →\n\n  Совсем новая (меньше 4 недель)?\n     → ничего, пусть осваивается\n\n  Лежит 4+ недель, остаток БОЛЬШОЙ (>20 шт)?\n     → ВРЕМЕННАЯ АКЦИЯ (двигаем объём срочностью)\n\n  Лежит 4+ недель, остаток МАЛЕНЬКИЙ (≤20 шт)?\n     → ПОСТОЯННАЯ СКИДКА (закрываем хвост)\n\n  Совсем мало (≤5 шт) и мёртвый?\n     → СЛИВ\n\nСкидка/акция уже стоит →\n\n  Продажи пошли?  → держим, всё ок\n  Период оценки идёт? → ждём результат\n  Не помогло после оценки? → УГЛУБИТЬ\n  Углубили до −70%, всё мёртво? → СЛИВ</div>'+
   '</div>'+
 
-  // 11. GLOSSARY
-  '<div class="help-sec" id="h-gloss"><h2>11. Глоссарий</h2>'+
+  // 12. GLOSSARY
+  '<div class="help-sec" id="h-gloss"><h2>12. Глоссарий</h2>'+
     '<div class="help-gl">'+
+    '<b>Партия (лот)</b><span>Завоз товара. В программе — карточка денег: сколько вложено. В 1С ей соответствует верхняя группа номенклатуры.</span>'+
+    '<b>Автоматический срок</b><span>Дата лота + 3 месяца, если «продать до» не заполнено. Помечен словом «авто». Ваша дата всегда главнее.</span>'+
     '<b>Оприходовано</b><span>Начальный объём партии = текущий остаток + проданное.</span>'+
     '<b>Реверсивная себестоимость</b><span>Себестоимость распределяется пропорционально цене позиции. Наценка % одинакова у всех позиций лота.</span>'+
     '<b>Наценка</b><span>Прибыль от себестоимости. Цена/себест − 1. Цена 5990, себест 1835 → 226%.</span>'+
@@ -3822,21 +4000,24 @@ function renderHelp(){
     '</div>'+
   '</div>'+
 
-  // 12. TROUBLE
-  '<div class="help-sec" id="h-trouble"><h2>12. Если что-то пошло не так</h2>'+
+  // 13. TROUBLE
+  '<div class="help-sec" id="h-trouble"><h2>13. Если что-то пошло не так</h2>'+
     '<h3>Не вижу изменений после обновления</h3>'+
     '<p>Это кэш браузера. Жми <b>Ctrl+Shift+R</b> (жёсткая перезагрузка) или открой в режиме инкогнито. Проверь номер версии в шапке (бейдж рядом с логотипом) — он должен совпадать с последней.</p>'+
+    '<h3>Партия из 1С не легла на лот</h3>'+
+    '<p>Значит, названия разошлись: в 1С «DKF», а лот назван «DKF Пуховички и жилетки». В предпросмотре загрузки такая партия окажется в списке «без лота» — нажми «Привязать» и выбери лот. Связь запомнится, дальше подхватится сама.</p>'+
+    '<h3>После загрузки из 1С продажи не изменились</h3>'+
+    '<p>Так и задумано, если 1С не сообщила, за какие дни обмен реально прошёл. Программа предпочитает не тронуть продажи, чем испортить их. Продажи можно догрузить файлом через «Из файлов».</p>'+
     '<h3>Цифры продаж выглядят завышенными</h3>'+
-    '<p>Убедись что грузишь актуальный файл продаж. Система считает по неделям без двойного счёта колонки «Итого».</p>'+
+    '<p>Убедись, что грузишь актуальный файл продаж. Программа считает по неделям без двойного счёта колонки «Итого».</p>'+
     '<h3>Скидки не предлагаются на непродающийся товар</h3>'+
-    '<p>Проверь <b>дату поступления</b> лота — если стоит сегодняшняя, система думает что товар новый. Поставь реальную дату прихода через «Обновить лот».</p>'+
+    '<p>Проверь <b>дату поступления</b> лота — если стоит сегодняшняя, программа думает, что товар новый. Поставь реальную дату прихода.</p>'+
+    '<h3>Скидки внезапно стали максимальными по всему лоту</h3>'+
+    '<p>Скорее всего, у лота не задан срок продажи, а автоматический (дата лота + 3 месяца) уже прошёл. Это видно по пометке «авто» и по вердикту «срок продажи прошёл N мес назад». Поставь свою дату — она отменит автоматическую.</p>'+
     '<h3>Лот не окупается (минус в прибыли)</h3>'+
-    '<p>Это нормально пока распродаёшь. Чистая прибыль становится плюсовой когда продажи покроют полную стоимость лота.</p>'+
+    '<p>Это нормально, пока распродаёшь. Чистая прибыль становится плюсовой, когда продажи покроют полную стоимость лота.</p>'+
     '<h3>Синхронизация</h3>'+
-    '<p>Все скидки, сливы, акции сохраняются автоматически и синхронизируются в облако. Данные привязаны к лотам и акциям — заливаются целиком при каждом изменении.</p>'+
-    '<h3>Вход и доступ</h3>'+
-    '<p>Вход — по <b>почте и паролю</b>. Доступ к облачным данным имеют только сотрудники из белого списка: посторонний, даже зарегистрировавшись, ничего не увидит. Пароль меняется кнопкой 🔑 в шапке. Кнопка выхода — рядом.</p>'+
-    '<p>Если забыли пароль — обратитесь к администратору системы, он назначит новый.</p>'+
+    '<p>Все скидки, сливы, акции сохраняются автоматически и уходят в облако. Индикатор в шапке показывает факт: сколько записей ещё не доехало. Несохранённое копится в очереди и повторяется само, а не теряется молча.</p>'+
     '<div class="help-tip">💡 Рекомендация и подтверждённое действие — разное. Рекомендация (совет системы) видна внутри лота и в Рекомендациях. Применённое (скидка, слив, акция) — то что ты подтвердил, висит в соответствующих разделах.</div>'+
   '</div>'+
 
