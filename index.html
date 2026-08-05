@@ -781,6 +781,7 @@ const DEF_CFG={
   promoThreshold:30,
   promoThresholdSecondSeason:50,
   noDeadlineMonths:6,
+  deficitRatio:0.5,
   _cfgVer:2
 };
 let CFG=Object.assign({},DEF_CFG);
@@ -1485,13 +1486,21 @@ function enrichItems(items,lotDate,secondSeason,lotSellBy){
     i.coverMonths=i.effAvgMonth>0?(remain/i.effAvgMonth):null;
     i.hadPromo=(i.promoHistory||[]).length>0;
     i.inActivePromo=(i.activePromos||[]).length>0;
-    // ДЕФИЦИТ: распродастся быстрее дедлайна продаж (sellBy).
-    // Если по текущему темпу товар кончится ДО даты "продать до" — это дефицит.
+    // ДЕФИЦИТ: товар кончится сильно раньше срока — значит цену можно поднять.
+    // Раньше хватало «кончится хоть на день раньше», и в дефицит попадала четверть
+    // всего ассортимента (174 позиции из 472 на боевых данных) — совет тонул в шуме.
+    // Теперь нужен двукратный запас по времени: кончится вдвое быстрее, чем требует срок.
     i.isDeficit=false;
+    i.deficitRatio=null;
     if(remain>0&&i.coverMonths!==null&&i.coverMonths>0&&lotSellBy){
       var sellByDate=new Date(lotSellBy);
-      var selloutDate=new Date(now.getTime()+i.coverMonths*MS_PER_MONTH);
-      if(!isNaN(sellByDate.getTime())&&selloutDate<sellByDate)i.isDeficit=true;
+      if(!isNaN(sellByDate.getTime())){
+        var monthsToSellBy=(sellByDate-now)/MS_PER_MONTH;
+        if(monthsToSellBy>0){
+          i.deficitRatio=i.coverMonths/monthsToSellBy;
+          if(i.deficitRatio<(CFG.deficitRatio||0.5))i.isDeficit=true;
+        }
+      }
     }
     // ярлык "повышена цена" (priceUp) — сохраняем как есть (ставится вручную или при загрузке прайса)
     if(i.priceUp===undefined)i.priceUp=false;
@@ -4864,8 +4873,10 @@ function collectAllRecos(filterLotId){
     var m=metrics(l);var lotRecovered=m.recovery>=100;
     l.items.forEach(function(item){
       if((item.qty||0)<=0)return; // распродано
-      // Повысить цену: дефицит (распродаётся быстрее дедлайна) и ярлык ещё не стоит
-      if(item.isDeficit&&!item.priceUp)priceUp.push({lot:l,item:item,rec:{disc:0}});
+      // Повысить цену: дефицит и ярлык ещё не стоит.
+      // Только по ходовым (A/B): поднимать цену на хвосте ассортимента смысла нет,
+      // а список раздувается втрое и главное в нём теряется.
+      if(item.isDeficit&&!item.priceUp&&(item._abcd==='A'||item._abcd==='B'))priceUp.push({lot:l,item:item,rec:{disc:0}});
       if((item.activePromos||[]).length)return; // уже в акции
       if(item.isLiquidated)return; // уже подтверждён слив
       var rec=calcRecommendedDiscount(item,l,lotRecovered);
@@ -4890,7 +4901,9 @@ function lotStateBadge(l){
   var m=metrics(l);
   if(l.status==='closed')return '<span style="font-size:8px;color:var(--text3)">закрыт</span>';
   if(m.recovery>=100)return '<span style="font-size:8px;color:var(--green)">окупился · можно ниже себеса</span>';
-  var extra=l.sellBy?(' · до '+l.sellBy.slice(5)):'';
+  // Без даты «продать до» советы считаются по горизонту из настроек — это надо видеть
+  var extra=l.sellBy?(' · до '+l.sellBy.slice(5))
+    :(' · <span style="color:var(--yellow)">срок не задан</span>');
   return '<span style="font-size:8px;color:'+(m.recovery>50?'var(--yellow)':'var(--text3)')+'">окупаемость '+Math.round(m.recovery)+'%'+extra+'</span>';
 }
 function recosTotalCount(){
