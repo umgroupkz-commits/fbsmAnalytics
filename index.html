@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v97</title>
+<title>FBSM — Управление лотами v98</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v97</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v98</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -5440,13 +5440,17 @@ function watchExport(id){
 }
 function renderWatch(){
   var el=document.getElementById('watch-content');if(!el)return;
-  if(!watch.length){
+  var localRows=watchLocalRows();
+  if(!watch.length&&!localRows.length){
     el.innerHTML='<div class="empty-state"><div style="font-size:40px">👁</div>'+
       '<div>Списков наблюдения пока нет</div>'+
       '<div style="font-size:11px;max-width:460px;margin:8px auto 0;line-height:1.6">Скидки ставятся в 1С, а не здесь. На вкладке «Действия» отметьте позиции, которые хотите уценить, и нажмите «В список наблюдения». Программа выгрузит задание для 1С, а когда скидка появится в данных — сама покажет, что из этого вышло.</div></div>';
     return;
   }
   var h='<div style="font-size:11px;color:var(--text3);margin-bottom:12px">Программа сама следит, появилась ли скидка в данных 1С и как на неё откликнулись продажи. Вводить ничего не нужно.</div>';
+  if(!watch.length){
+    h+='<div style="font-size:11px;color:var(--text2);margin-bottom:12px">Списков пока нет — создаются с вкладки «Действия» («В список наблюдения»).</div>';
+  }
   watch.slice().sort(function(a,b){return (b.createdAt||'').localeCompare(a.createdAt||'');}).forEach(function(w){
     var s=watchSummary(w);
     h+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px">'+
@@ -5470,7 +5474,60 @@ function renderWatch(){
         (s.worked&&s.failed?' / ':'')+(s.failed?'<span style="color:var(--red)">не помогло '+s.failed+'</span>':'')):'')+
       '</div></div>';
   });
+  h+=watchLocalSection(localRows);
   el.innerHTML=h;
+}
+// Скидки и сливы, поставленные ВНУТРИ программы (старым способом, до перехода
+// на задания в 1С). Позиция с такой скидкой уходит из рекомендаций, и без этого
+// раздела её было негде увидеть и нечем отменить.
+function watchLocalRows(){
+  var rows=[];
+  lots.forEach(function(l){
+    if(l.status==='closed')return;
+    (l.items||[]).forEach(function(it){
+      if(!(it.hasDiscount&&it.discountPct>0)&&!it.isLiquidated)return;
+      rows.push({lot:l,item:it,date:it.discountSetDate||''});
+    });
+  });
+  rows.sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+  return rows;
+}
+function watchLocalSection(rows){
+  if(!rows.length)return '';
+  var liq=rows.filter(function(r){return r.item.isLiquidated;}).length;
+  var h='<details style="margin-top:16px" '+(rows[0]&&rows[0].date===new Date().toISOString().slice(0,10)?'open':'')+'>'+
+    '<summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);user-select:none">🏷 Поставлено в программе ('+rows.length+')'+
+    (liq?' <span style="font-size:10px;color:var(--red)">· сливов '+liq+'</span>':'')+
+    ' <span style="font-weight:400;color:var(--text3);font-size:10px">— скидки и сливы, отмеченные внутри программы; можно вернуть</span></summary>'+
+    '<div style="font-size:10px;color:var(--text3);margin:6px 0">Так скидки ставились раньше. Теперь задания идут в 1С, а фактическая скидка читается из данных — но всё поставленное здесь по-прежнему учитывается в советах. «Вернуть» снимает отметку, и позиция снова появится в «Действиях».</div>'+
+    '<div style="overflow-x:auto;max-height:320px;overflow-y:auto"><table><thead><tr>'+
+    '<th>Позиция</th><th style="text-align:right">Ост.</th><th style="text-align:right">Скидка</th><th>Тип</th><th>Когда</th><th></th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    h+='<tr><td style="max-width:240px"><span style="cursor:pointer;color:var(--accent)" onclick="watchOpenItem(\''+r.lot.id+'\',\''+r.item.id+'\')">'+esc(r.item.name)+'</span>'+
+       '<div style="font-size:9px;color:var(--text3)">'+esc(r.lot.name)+'</div></td>'+
+       '<td class="mono" style="text-align:right">'+fmt(Math.max(r.item.qty||0,0))+'</td>'+
+       '<td class="mono" style="text-align:right;color:var(--orange)">−'+(r.item.discountPct||0)+'%</td>'+
+       '<td style="font-size:10px">'+(r.item.isLiquidated?'<span style="color:var(--red)">🔥 слив</span>':'<span style="color:var(--yellow)">пост. скидка</span>')+'</td>'+
+       '<td class="mono" style="font-size:10px">'+esc(r.date||'—')+'</td>'+
+       '<td><button class="btn btn-ghost btn-sm" onclick="watchUndoLocal(\''+r.lot.id+'\',\''+r.item.id+'\')">Вернуть</button></td></tr>';
+  });
+  h+='</tbody></table></div></details>';
+  return h;
+}
+// Снять поставленную в программе скидку/слив: позиция возвращается в «Действия»
+function watchUndoLocal(lotId,itemId){
+  var l=getLot(lotId);if(!l)return;
+  var item=getItem(l,itemId);if(!item)return;
+  var was=(item.isLiquidated?'слив ':'скидка ')+'−'+(item.discountPct||0)+'%';
+  if(!confirm('Вернуть «'+item.name+'»?\n\nСнимется отметка ('+was+'), позиция снова появится в «Действиях».'))return;
+  if(!item.discountHistory)item.discountHistory=[];
+  if(item.discountPct>0)item.discountHistory.push({disc:item.discountPct,date:item.discountSetDate||'',price:item.discountPrice||0});
+  item.discountPct=0;item.discountPrice=0;item.hasDiscount=false;item.isLiquidated=false;
+  l.updatedAt=new Date().toISOString();
+  sbUpsert('lots',l.id,l);
+  save();
+  logAction('undisc','Возвращено из «поставлено в программе» ('+was+') · '+item.name+' («'+l.name+'»)',{lotName:l.name,itemName:item.name});
+  renderWatch();updateRecosBadge();
 }
 function openWatchDetail(id){
   var w=getWatch(id);if(!w)return;
@@ -6130,8 +6187,8 @@ function renderRecos(){
     'Товар лежит дольше, чем должен — снижаем цену или запускаем акцию');
   // 📉 Углубить
   if(r.deepen.length){
-    html+=recoSection('📉 Углубить скидку',r.deepen,'var(--red)','Скидка стоит, но продажи не идут — пора углубить',function(row){
-      return '<button class="btn btn-danger btn-sm" onclick="recoApplyDeepen(\''+row.lot.id+'\',\''+row.item.id+'\')">−'+row.item.discountPct+'% → −'+row.rec.disc+'%</button>';
+    html+=recoSection('📉 Углубить скидку',r.deepen,'var(--red)','Скидка не помогла — задание в 1С углубить. Отклик появится в «Наблюдении»',function(row){
+      return '<button class="btn btn-danger btn-sm" onclick="recoOneToWatch(\''+row.lot.id+':'+row.item.id+'\')" title="Сейчас −'+row.item.discountPct+'%, хотим −'+row.rec.disc+'%">👁 −'+row.item.discountPct+'% → −'+row.rec.disc+'%</button>';
     },true);
   }
   // 🏷 Кандидаты в акцию (с галочками для смешанной акции + экспорт)
@@ -6159,9 +6216,9 @@ function renderRecos(){
   }
   // 🏷 Постоянные скидки (с галочками + массовое действие + экспорт)
   if(r.perm.length){
-    html+=recoSectionChecks('🏷 Постоянные скидки',r.perm,'var(--yellow)','Небольшая скидка для ускорения к дедлайну','perm',
-      '🏷 Применить отмеченным','recoBulkPerm()',false,
-      function(row){return '<button class="btn btn-primary btn-sm" onclick="recoApplyDeepen(\''+row.lot.id+'\',\''+row.item.id+'\')">Скидка −'+row.rec.disc+'%</button>';},
+    html+=recoSectionChecks('🏷 Постоянные скидки',r.perm,'var(--yellow)','Небольшая скидка для ускорения к дедлайну — задание в 1С, отклик в «Наблюдении»','perm',
+      '👁 В список наблюдения','recoSecToWatch(\'perm\')',false,
+      function(row){return '<button class="btn btn-primary btn-sm" onclick="recoOneToWatch(\''+row.lot.id+':'+row.item.id+'\')">👁 −'+row.rec.disc+'%</button>';},
       'recoExportPerm()');
   }
 
@@ -6169,9 +6226,9 @@ function renderRecos(){
   if(r.liquidate.length){
     html+=recosGroupHead('Слить',r.liquidate.length,'var(--red)',
       'Скидки уже не помогут — освобождаем деньги и место');
-    html+=recoSectionChecks('🔥 Слить',r.liquidate,'var(--red)','Маленький остаток / мёртвый сток — закрыть позицию','liq',
-      '🔥 Слить отмеченные','recoBulkLiquidate()',true,
-      function(row){return '<button class="btn btn-danger btn-sm" onclick="recoApplyLiquidate(\''+row.lot.id+'\',\''+row.item.id+'\')">Слить −'+row.rec.disc+'%</button>';},
+    html+=recoSectionChecks('🔥 Слить',r.liquidate,'var(--red)','Маленький остаток / мёртвый сток — задание в 1С на слив, отклик в «Наблюдении»','liq',
+      '👁 В список наблюдения','recoSecToWatch(\'liq\')',true,
+      function(row){return '<button class="btn btn-danger btn-sm" onclick="recoOneToWatch(\''+row.lot.id+':'+row.item.id+'\')">👁 слив −'+row.rec.disc+'%</button>';},
       'recoExportLiquidate()');
   }
 
@@ -6260,6 +6317,15 @@ function updateRecoSecCount(kind){
   var sel=_recoSel[kind];
   var cnt=document.getElementById('reco-'+kind+'-cnt');
   if(cnt){var v=0;document.querySelectorAll('.reco-'+kind+'-chk').forEach(function(c){if(sel.has(c.getAttribute('data-key')))v++;});cnt.textContent=v;}
+}
+// Отмеченные в секции — в список наблюдения. Скидку/слив ставит 1С,
+// программа только формирует задание и потом следит за откликом.
+function recoSecToWatch(kind){
+  var sel=_recoSel[kind];
+  if(!sel||!sel.size){alert('Отметьте позиции галочками');return;}
+  recosSelected=new Set(sel);
+  sel.clear();
+  watchCreateFromSelection();
 }
 function recoBulkLiquidate(){
   if(recoLiqSel.size===0){alert('Отметьте позиции для слива');return;}
