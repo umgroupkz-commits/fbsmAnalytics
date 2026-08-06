@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v92</title>
+<title>FBSM — Управление лотами v93</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v92</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v93</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -543,6 +543,36 @@ tr:hover td{background:#1a2030}
 </div></div>
 
 <!-- MODAL SETTINGS -->
+<!-- Новый лот из партии 1С. Форма, а не системные окна ввода: за стоимостью
+     партии обычно уходят в другое окно, и ввод не должен теряться. -->
+<div id="modal-newlot" class="modal-overlay" style="display:none;z-index:10000"><div class="modal" style="max-width:480px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+    <div style="flex:1;font-size:15px;font-weight:700">Новый лот из партии 1С</div>
+    <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-newlot')"><i class="ti ti-x"></i></button>
+  </div>
+  <div id="nl-src" style="font-size:11px;color:var(--text2);margin-bottom:12px"></div>
+  <div style="display:grid;grid-template-columns:auto 1fr;gap:10px 12px;align-items:center;font-size:12px">
+    <label>Название лота</label>
+    <input class="inp inp-sm" id="nl-name" type="text" placeholder="как вам удобно его называть">
+    <label>Сколько вложено, ₸</label>
+    <input class="inp inp-sm" id="nl-cost" type="text" inputmode="decimal" placeholder="например 2 500 000">
+    <label>Дата поступления</label>
+    <input class="inp inp-sm" id="nl-date" type="date">
+  </div>
+  <div style="font-size:10px;color:var(--text3);margin-top:10px;line-height:1.6">
+    Позиции, остатки и цены подтянутся из 1С сами — вводить их не нужно.<br>
+    Стоимость партии 1С не знает: от неё считаются себестоимость, наценка и окупаемость.
+    Можно оставить пустой и вписать позже в карточке лота.<br>
+    <span id="nl-auto"></span>
+  </div>
+  <div style="font-size:10px;color:var(--green);margin-top:8px">💡 Окно не закроется само — можно спокойно уйти за цифрой в 1С и вернуться.</div>
+  <div id="nl-err" style="font-size:11px;color:var(--red);min-height:15px;margin-top:8px"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+    <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-newlot')">Отмена</button>
+    <button class="btn btn-primary" onclick="apiCreateLotSubmit()"><i class="ti ti-check"></i> Создать лот</button>
+  </div>
+</div></div>
+
 <div id="modal-access" class="modal-overlay" style="display:none"><div class="modal" style="max-width:620px">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
     <div style="flex:1;font-size:15px;font-weight:700">👥 Кто имеет доступ</div>
@@ -4628,43 +4658,62 @@ function renderApiPlan(){
 function apiCreateLotFromGroup(gi){
   var p=_apiPlan;if(!p)return;
   var g=p.newGroups[gi];if(!g){alert('Партия не найдена — обновите план');return;}
-  var name=prompt('Название лота (как вам удобно его называть):',g.group);
-  if(name===null)return;
-  name=(name||'').trim();
-  if(!name){alert('Название пустое — лот не создан');return;}
+  // Форма, а не череда системных окон: за стоимостью партии обычно надо сходить
+  // в другое окно, а системное окно ввода к возвращению уже закрыто и ввод потерян.
+  _newLotGroup=g;
+  document.getElementById('nl-src').innerHTML=
+    'Партия в 1С: <b>'+esc(g.group)+'</b> · позиций '+g.items+' · штук '+fmt(g.qty);
+  document.getElementById('nl-name').value=g.group;
+  document.getElementById('nl-cost').value='';
+  document.getElementById('nl-date').value=new Date().toISOString().slice(0,10);
+  document.getElementById('nl-err').textContent='';
+  document.getElementById('nl-auto').textContent=
+    'Не задавать срок продажи — он посчитается как дата поступления плюс '+autoSellByMonths()+' мес.';
+  document.getElementById('modal-newlot').style.display='flex';
+  setTimeout(function(){var e=document.getElementById('nl-cost');if(e)e.focus();},60);
+}
+var _newLotGroup=null;
+// Отдельный шаг: между открытием формы и сохранением человек уходит за цифрой
+// в другое окно. Форма ждёт сколько угодно и ничего не теряет.
+function apiCreateLotSubmit(){
+  var g=_newLotGroup;if(!g){closeModal('modal-newlot');return;}
+  var p=_apiPlan;if(!p)return;
+  var err=document.getElementById('nl-err');
+  var name=(document.getElementById('nl-name').value||'').trim();
+  if(!name){err.textContent='Впишите название лота';return;}
   if(lots.some(function(l){return l.name===name;})){
-    if(!confirm('Лот с названием «'+name+'» уже есть. Всё равно создать ещё один?\n\nЕсли это та же партия — лучше отмените и привяжите её к существующему лоту слева.'))return;
+    if(!confirm('Лот с названием «'+name+'» уже есть. Всё равно создать ещё один?\n\n'+
+      'Если это та же партия — лучше отмените и привяжите её к существующему лоту в списке.'))return;
   }
-  var costStr=prompt('Сколько вложено в партию «'+name+'», ₸?\n\n'+
-    'Это единственное, чего 1С про партию не знает. Без стоимости не посчитать ни себестоимость, ни наценку, ни окупаемость.\n\n'+
-    'Можно оставить 0 и указать позже в карточке лота.','0');
-  if(costStr===null)return;
-  var cost=parseFloat(String(costStr).replace(/\s/g,'').replace(/ /g,'').replace(',','.'))||0;
-  var dateStr=prompt('Когда партия поступила? (ГГГГ-ММ-ДД)\n\n'+
-    'От этой даты считается возраст остатка и лестница скидок. Если срок продажи не задать, он будет посчитан как эта дата плюс '+autoSellByMonths()+' мес.',
-    new Date().toISOString().slice(0,10));
-  if(dateStr===null)return;
-  dateStr=(dateStr||'').trim();
+  // Стоимость обычно копируют как «2 500 000,00» — принимаем пробелы и запятую
+  var raw=(document.getElementById('nl-cost').value||'').replace(/[\s\u00a0]/g,'').replace(',','.');
+  if(raw&&isNaN(parseFloat(raw))){err.textContent='Стоимость не похожа на число';return;}
+  var cost=parseFloat(raw)||0;
+  var dateStr=(document.getElementById('nl-date').value||'').trim();
   if(!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)||isNaN(new Date(dateStr).getTime())){
-    alert('Дата не распознана — лот не создан. Нужен вид ГГГГ-ММ-ДД, например 2026-08-05.');return;
+    err.textContent='Проверьте дату поступления';return;
   }
+  if(cost<=0&&!confirm('Стоимость партии не указана.\n\nЛот создастся, но окупаемость и наценка считаться не будут, пока вы её не впишете.\n\nВсё равно создать?'))return;
   autoSnapshot('перед созданием лота из 1С');
   var made=buildLotsFromBatch(
     [{name:name,groups:[g.group],cost:cost,date:dateStr}],
     p.groups, p.priceMap, p.salesUsable?p.salesData:null);
-  if(!made.length){alert('Не удалось собрать позиции партии — лот не создан');return;}
+  if(!made.length){err.textContent='Не удалось собрать позиции партии';return;}
   var lot=made[0];
   lots.push(lot);
   sbUpsert('lots',lot.id,lot);
   save();
   logAction('lot','Лот «'+name+'» создан из партии 1С «'+g.group+'»',{lotName:name});
+  closeModal('modal-newlot');
+  _newLotGroup=null;
   // План пересобираем: партия теперь принадлежит лоту и уйдёт из списка «без лота»
   _apiPlan=apiBuildPlan(_apiRawData);
   renderApiPlan();
   updateRecosBadge();
   alert('✓ Лот «'+name+'» создан: позиций '+(lot.items||[]).length+', штук '+fmt(g.qty)+
-    (cost>0?'':'\n\n⚠ Стоимость не указана — окупаемость и наценка считаться не будут. Впишите её в карточке лота.'));
+    (cost>0?'':'\n\n⚠ Стоимость не указана — впишите её в карточке лота, иначе окупаемость не посчитается.'));
 }
+
 // Блок «Оприходовано по 1С»: сверка с тем, что стоит у лота вручную.
 // Само не проставляется — только показывается расхождение и предлагается кнопка.
 function apiReceiptsBlock(p){
