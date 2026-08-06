@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v93</title>
+<title>FBSM — Управление лотами v94</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v93</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v94</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -556,14 +556,21 @@ tr:hover td{background:#1a2030}
     <input class="inp inp-sm" id="nl-name" type="text" placeholder="как вам удобно его называть">
     <label>Сколько вложено, ₸</label>
     <input class="inp inp-sm" id="nl-cost" type="text" inputmode="decimal" placeholder="например 2 500 000">
+    <label>Всего в партии, шт</label>
+    <input class="inp inp-sm" id="nl-units" type="text" inputmode="numeric" placeholder="если оприходовано не всё">
     <label>Дата поступления</label>
     <input class="inp inp-sm" id="nl-date" type="date">
+    <label>Продать до</label>
+    <input class="inp inp-sm" id="nl-sellby" type="date">
   </div>
   <div style="font-size:10px;color:var(--text3);margin-top:10px;line-height:1.6">
     Позиции, остатки и цены подтянутся из 1С сами — вводить их не нужно.<br>
-    Стоимость партии 1С не знает: от неё считаются себестоимость, наценка и окупаемость.
+    <b>Стоимость партии</b> 1С не знает: от неё считаются себестоимость, наценка и окупаемость.
     Можно оставить пустой и вписать позже в карточке лота.<br>
-    <span id="nl-auto"></span>
+    <b>Всего в партии</b> — сколько закупили по документам поставщика. Оприходовать могут не всё сразу,
+    и тогда это число больше того, что видно в 1С: <span id="nl-seen"></span>.
+    Пусто — значит пришло ровно столько, сколько уже оприходовано.<br>
+    <b>Продать до</b> — ваш срок распродажи, от него считаются скидки. <span id="nl-auto"></span>
   </div>
   <div style="font-size:10px;color:var(--green);margin-top:8px">💡 Окно не закроется само — можно спокойно уйти за цифрой в 1С и вернуться.</div>
   <div id="nl-err" style="font-size:11px;color:var(--red);min-height:15px;margin-top:8px"></div>
@@ -4665,10 +4672,13 @@ function apiCreateLotFromGroup(gi){
     'Партия в 1С: <b>'+esc(g.group)+'</b> · позиций '+g.items+' · штук '+fmt(g.qty);
   document.getElementById('nl-name').value=g.group;
   document.getElementById('nl-cost').value='';
+  document.getElementById('nl-units').value='';
+  document.getElementById('nl-seen').textContent='в 1С сейчас видно '+fmt(g.qty)+' шт';
   document.getElementById('nl-date').value=new Date().toISOString().slice(0,10);
+  document.getElementById('nl-sellby').value='';
   document.getElementById('nl-err').textContent='';
   document.getElementById('nl-auto').textContent=
-    'Не задавать срок продажи — он посчитается как дата поступления плюс '+autoSellByMonths()+' мес.';
+    'Оставите пустым — возьмётся дата поступления плюс '+autoSellByMonths()+' мес, и в карточке лота срок будет помечен «авто».';
   document.getElementById('modal-newlot').style.display='flex';
   setTimeout(function(){var e=document.getElementById('nl-cost');if(e)e.focus();},60);
 }
@@ -4689,14 +4699,29 @@ function apiCreateLotSubmit(){
   var raw=(document.getElementById('nl-cost').value||'').replace(/[\s\u00a0]/g,'').replace(',','.');
   if(raw&&isNaN(parseFloat(raw))){err.textContent='Стоимость не похожа на число';return;}
   var cost=parseFloat(raw)||0;
+  // Всего в партии по документам поставщика. Может быть больше того, что видно
+  // в 1С: оприходовать могут не всё сразу. Пусто — значит пришло всё.
+  var rawU=(document.getElementById('nl-units').value||'').replace(/[\s ]/g,'');
+  if(rawU&&(isNaN(parseInt(rawU,10))||parseInt(rawU,10)<0)){err.textContent='«Всего в партии» — целое число штук';return;}
+  var units=rawU?parseInt(rawU,10):0;
+  if(units&&units<g.qty&&!confirm('Вы указали «всего в партии» '+fmt(units)+' шт, а в 1С уже оприходовано '+fmt(g.qty)+' шт.\n\n'+
+    'Обычно бывает наоборот. Если так и есть — продолжайте, но проверьте число.\n\nВсё равно создать?'))return;
   var dateStr=(document.getElementById('nl-date').value||'').trim();
   if(!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)||isNaN(new Date(dateStr).getTime())){
     err.textContent='Проверьте дату поступления';return;
   }
+  // Срок продажи необязателен: пусто — посчитается автоматически от даты поступления
+  var sellBy=(document.getElementById('nl-sellby').value||'').trim();
+  if(sellBy){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(sellBy)||isNaN(new Date(sellBy).getTime())){
+      err.textContent='Проверьте срок «продать до»';return;
+    }
+    if(sellBy<dateStr){err.textContent='«Продать до» раньше даты поступления';return;}
+  }
   if(cost<=0&&!confirm('Стоимость партии не указана.\n\nЛот создастся, но окупаемость и наценка считаться не будут, пока вы её не впишете.\n\nВсё равно создать?'))return;
   autoSnapshot('перед созданием лота из 1С');
   var made=buildLotsFromBatch(
-    [{name:name,groups:[g.group],cost:cost,date:dateStr}],
+    [{name:name,groups:[g.group],cost:cost,date:dateStr,totalUnits:units,sellBy:sellBy}],
     p.groups, p.priceMap, p.salesUsable?p.salesData:null);
   if(!made.length){err.textContent='Не удалось собрать позиции партии';return;}
   var lot=made[0];
@@ -4803,6 +4828,22 @@ function apiApplyReceipts(){
 }
 
 // Блок «Скидки, заведённые в 1С». Показываем намерение из учёта; применяет человек.
+// Сколько позиций правила уже стоят в программе с этой же скидкой.
+// Считается на лету, а не запоминается: скидку могли снять или изменить руками.
+function apiRuleApplied(r){
+  var byName={};(r.itemNames||[]).forEach(function(n){byName[n]=true;});
+  var total=0,done=0;
+  lots.forEach(function(l){
+    if(l.status==='closed')return;
+    (l.items||[]).forEach(function(it){
+      if(!byName[it.key||it.name])return;
+      if(Math.max(it.qty||0,0)<=0)return;
+      total++;
+      if((it.discountPct||0)===r.value)done++;
+    });
+  });
+  return {total:total,done:done};
+}
 function apiDiscountsBlock(p){
   var d=p.discounts;
   if(!d)return '';
@@ -4810,28 +4851,40 @@ function apiDiscountsBlock(p){
     '⚠ Скидки из 1С не получены: '+esc(d.error)+'</div>';
   if(!d.rules.length)return '';
   var h='<div style="font-size:12px;font-weight:600;margin:14px 0 4px">🏷 Скидки, заведённые в 1С ('+d.rules.length+')</div>'+
-    '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Это правила из учёта — намерение. Фактические скидки с кассы уже учтены в выручке. Ничего не применяется само: смотрите и решайте.<br>'+
-    '«Товаров» — сколько наименований под правилом, «размеров» — сколько конкретных размеров-цветов. Программа считает по наименованию целиком.</div>'+
-    '<div style="overflow-x:auto"><table><thead><tr><th>Правило</th><th>Скидка</th><th>Действует до</th><th>Состояние</th>'+
-    '<th style="text-align:right">Товаров</th><th style="text-align:right">Размеров</th><th>Лоты</th><th></th></tr></thead><tbody>';
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Правила из учёта — намерение. Фактические скидки с кассы уже учтены в выручке. Само ничего не применяется.<br>'+
+    '«Охват» — сколько наименований под правилом и сколько за ними размеров-цветов. Программа считает наименование целиком.</div>'+
+    '<div style="overflow-x:auto"><table style="table-layout:fixed;width:100%"><thead><tr>'+
+    '<th style="width:26%">Правило</th>'+
+    '<th style="width:11%">Скидка</th>'+
+    '<th style="width:13%">Состояние</th>'+
+    '<th style="width:16%">Охват</th>'+
+    '<th style="width:18%">В программе</th>'+
+    '<th style="width:16%"></th></tr></thead><tbody>';
   d.rules.forEach(function(r,ri){
     var state=r.revoked?'<span style="color:var(--text3)">снято в 1С</span>'
              :r.expired?'<span style="color:var(--orange)">срок истёк</span>'
              :'<span style="color:var(--green)">идёт</span>';
     var val=r.type==='percent'?('−'+r.value+'%'):(r.type==='fixed_price'?('цена '+fmt(r.value)):('−'+fmt(r.value)+' ₸'));
-    h+='<tr><td style="font-weight:500">'+esc(r.name)+'</td>'+
-       '<td class="mono">'+val+'</td>'+
-       '<td class="mono" style="font-size:10px">'+(r.dateTo?esc(String(r.dateTo).slice(0,10)):'бессрочно')+'</td>'+
+    var ap=apiRuleApplied(r);
+    var applied;                       // что показываем в столбце «В программе»
+    if(!ap.total)applied='<span style="color:var(--text3)">позиций нет</span>';
+    else if(ap.done>=ap.total)applied='<span style="color:var(--green)">✓ перенесено, '+ap.done+' поз.</span>';
+    else if(ap.done>0)applied='<span style="color:var(--yellow)">перенесено '+ap.done+' из '+ap.total+'</span>';
+    else applied='<span style="color:var(--text3)">не перенесено ('+ap.total+' поз.)</span>';
+    var canApply=r.type==='percent'&&!r.revoked&&ap.total>ap.done;
+    h+='<tr><td style="font-weight:500;white-space:normal;word-break:break-word">'+esc(r.name)+
+         '<div style="font-size:9px;color:var(--text3);font-weight:400">'+esc(r.lotNames.slice(0,2).join(', ')||'—')+
+         (r.lotNames.length>2?(' +'+(r.lotNames.length-2)):'')+'</div></td>'+
+       '<td class="mono">'+val+
+         '<div style="font-size:9px;color:var(--text3);font-family:var(--font)">'+
+         (r.dateTo?('до '+esc(String(r.dateTo).slice(5,10))):'бессрочно')+'</div></td>'+
        '<td style="font-size:10px">'+state+'</td>'+
-       '<td class="mono" style="text-align:right">'+fmt(r.productCount)+'</td>'+
-       '<td class="mono" style="text-align:right">'+fmt(r.charCount)+
-         (r.partialSizes
-           ? '<div style="font-size:8px;color:var(--orange);font-family:var(--font)">из '+fmt(r.charTotal)+' — не все</div>'
-           : (r.charTotal?'<div style="font-size:8px;color:var(--text3);font-family:var(--font)">все</div>':''))+'</td>'+
-       '<td style="font-size:10px;color:var(--text3);max-width:180px">'+esc(r.lotNames.slice(0,3).join(', ')||'—')+
-         (r.lotNames.length>3?(' +'+(r.lotNames.length-3)):'')+'</td>'+
-       '<td>'+(r.type==='percent'&&!r.revoked&&r.itemNames.length
-         ?'<button class="btn btn-warn btn-sm" onclick="apiApplyDiscountRule('+ri+')">Перенести в программу</button>'
+       '<td style="font-size:10px;color:var(--text2)">'+fmt(r.productCount)+' тов.'+
+         '<div style="font-size:9px;color:'+(r.partialSizes?'var(--orange)':'var(--text3)')+'">'+
+         fmt(r.charCount)+(r.partialSizes?(' из '+fmt(r.charTotal)+' разм.'):' разм.')+'</div></td>'+
+       '<td style="font-size:10px">'+applied+'</td>'+
+       '<td>'+(canApply
+         ?'<button class="btn btn-warn btn-sm" onclick="apiApplyDiscountRule('+ri+')">'+(ap.done?'Дополнить':'Перенести')+'</button>'
          :'<span style="font-size:9px;color:var(--text3)">—</span>')+'</td></tr>';
   });
   h+='</tbody></table></div>';
@@ -4846,6 +4899,7 @@ function apiDiscountsBlock(p){
     'Если это важно — переносите не правилом, а вручную нужным позициям.</div>';
   return h;
 }
+
 // Переносит правило 1С в программу как постоянную скидку на позиции.
 // Только на те, что реально есть в лотах, и только с подтверждением.
 function apiApplyDiscountRule(ri){
