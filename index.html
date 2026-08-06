@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v89</title>
+<title>FBSM — Управление лотами v90</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v89</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v90</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -2114,6 +2114,26 @@ function applyDiscountCore(itemId,opts){
 function applyDiscount(itemId){
   if(!activeLotId)return;
   applyDiscountCore(itemId,{rerender:'detail'});
+}
+// Поставить позиции ЗАДАННЫЙ процент, а не рекомендованный.
+// Нужно для переноса скидок, уже заведённых в 1С: там решение принято не нами,
+// и подменять его расчётом программы было бы неверно.
+function setItemDiscount(lot,item,pct,why){
+  if(!lot||!item)return false;
+  pct=Math.max(0,Math.min(Number(pct)||0,MAX_DISCOUNT_PCT));
+  if(!item.discountHistory)item.discountHistory=[];
+  var wasPct=item.discountPct||0;
+  if(wasPct>0)item.discountHistory.push({disc:wasPct,date:item.discountSetDate||'',price:item.discountPrice||0});
+  item.discountPct=pct;
+  item.discountPrice=Math.round((item.price||0)*(1-pct/100));
+  item.discountSetDate=new Date().toISOString().slice(0,10);
+  item.hasDiscount=pct>0;
+  lot.updatedAt=new Date().toISOString();
+  sbUpsert('lots',lot.id,lot);
+  logAction('disc','Скидка '+(wasPct>0?('−'+wasPct+'% → '):'')+'−'+pct+'% · '+item.name+
+    ' («'+lot.name+'»), цена '+fmt(item.discountPrice)+' ₸'+(why?' · '+why:''),
+    {lotName:lot.name,itemName:item.name});
+  return true;
 }
 // Подтвердить слив (ставит скидку + флаг isLiquidated)
 function applyLiquidate(itemId,lotId){
@@ -4237,11 +4257,52 @@ async function apiGet(path,params){
 // ===== ЗАГРУЗКА ДАННЫХ ИЗ 1С =====
 // Сначала строим план и показываем его, и только потом применяем:
 // автоматическая раскладка по партиям — то место, где ошибка дорога.
-var SALES_WINDOW_DAYS=90;      // за какой период просим продажи (в 1С окно 30 дней)
+var SALES_WINDOW_DAYS=90;      // сколько просим, если своей истории ещё нет
+var SALES_MAX_RANGE=400;       // ограничение 1С: больше 400 дней за запрос нельзя
 var _apiPlan=null,_apiRawData=null;
+
+// Последняя неделя, которая уже сохранена хоть у одной позиции (ISO).
+function apiLastStoredWeek(){
+  var last='';
+  lots.forEach(function(l){
+    (l.items||[]).forEach(function(i){
+      (i.weeks||[]).forEach(function(w){
+        var k=weekKey(String(w.label).slice(0,10));
+        if(/^\d{4}-\d{2}-\d{2}$/.test(k)&&k>last)last=k;
+      });
+    });
+  });
+  return last;
+}
+// С какой даты просить продажи. Раньше стояли жёсткие 90 дней — и если программу
+// не открывать дольше, кусок продаж просто не запрашивался. Данные у 1С при этом
+// никуда не деваются (её backfill_days — глубина ночной перепроверки, а не срок
+// хранения), поэтому берём от своей последней недели и не боимся длинного периода.
+function apiSalesFrom(status){
+  var last=apiLastStoredWeek();
+  var from;
+  if(last){
+    from=new Date(new Date(last).getTime()-7*MS_PER_DAY);   // неделю назад — на перекрытие
+  } else {
+    from=new Date(Date.now()-SALES_WINDOW_DAYS*MS_PER_DAY);
+  }
+  // Глубже, чем у 1С вообще есть данные, спрашивать незачем
+  var earliest=status&&status.earliest_business_date;
+  if(earliest&&/^\d{4}-\d{2}-\d{2}$/.test(earliest)){
+    var e=new Date(earliest);
+    if(e>from)from=e;
+  }
+  // И не длиннее, чем разрешает 1С
+  var maxBack=new Date(Date.now()-(SALES_MAX_RANGE-2)*MS_PER_DAY);
+  if(from<maxBack)from=maxBack;
+  return from.toISOString().slice(0,10);
+}
 
 async function apiFetchAll(onProgress){
   function step(t){if(onProgress)onProgress(t);}
+  step('Проверяю состояние обмена…');
+  var status=null;
+  try{status=await apiGet('/goods/status',{});}catch(e){}
   step('Справочник товаров…');
   var catalog=await apiGet('/goods/catalog',{});
   step('Остатки по складам…');
@@ -4249,13 +4310,27 @@ async function apiFetchAll(onProgress){
   step('Цены…');
   var prices=await apiGet('/goods/prices',{});
   step('Продажи…');
-  var to=new Date();
-  var from=new Date(to.getTime()-SALES_WINDOW_DAYS*MS_PER_DAY);
+  var to=new Date().toISOString().slice(0,10);
+  var from=apiSalesFrom(status);
   var sales=null;
   try{
-    sales=await apiGet('/goods/sales',{from:from.toISOString().slice(0,10),to:to.toISOString().slice(0,10),group_by:'week'});
+    sales=await apiGet('/goods/sales',{from:from,to:to,group_by:'week'});
   }catch(e){sales={weeks:[],rows:[],synced_days:[],_error:e.message};}
-  return {catalog:catalog,stock:stock,prices:prices,sales:sales};
+  step('Приход товара…');
+  // Приход берём на всю доступную глубину, а не за окно продаж: «оприходовано»
+  // по партии — это её начальный объём, он мог сложиться задолго до последних недель.
+  var recFrom=new Date(Date.now()-(SALES_MAX_RANGE-2)*MS_PER_DAY).toISOString().slice(0,10);
+  var receipts=null;
+  try{
+    receipts=await apiGet('/goods/receipts',{from:recFrom,to:to});
+  }catch(e){receipts={rows:[],_error:e.message};}
+  step('Скидки, заведённые в 1С…');
+  var discounts=null;
+  try{
+    discounts=await apiGet('/goods/discounts',{});
+  }catch(e){discounts={rows:[],_error:e.message};}
+  return {catalog:catalog,stock:stock,prices:prices,sales:sales,
+          receipts:receipts,discounts:discounts,status:status,salesFrom:from};
 }
 
 // План: что попадёт в существующие лоты, что предлагается завести новым
@@ -4277,7 +4352,7 @@ function apiBuildPlan(data){
   // 1С держит продажи скользящим окном (на проверке — 31 день). Если между нашей
   // последней неделей и началом окна образовалась дыра, эти продажи 1С уже не отдаст
   // никогда — их можно взять только выгрузкой файлом. Молчать об этом нельзя.
-  var gap=apiSalesGap(syncedDays);
+  var gap=apiSalesGap(data.status,syncedDays);
 
   var lotPlans=[],newGroups=[];
   groups.forEach(function(g){
@@ -4306,6 +4381,9 @@ function apiBuildPlan(data){
           lotPlans:lotPlans,newGroups:newGroups,negatives:negatives,
           salesUsable:salesUsable,syncedDays:syncedDays,
           weekFieldBroken:weekFieldBroken,salesRowsNoWeek:noWeek,salesGap:gap,
+          salesFrom:data.salesFrom,status:data.status,
+          receipts:apiToReceipts(data.catalog,data.receipts),
+          discounts:apiToDiscounts(data.catalog,data.discounts),
           catalogCount:(data.catalog.items||[]).length,
           stockRows:(data.stock.rows||[]).length,
           priceRows:(data.prices.rows||[]).length,
@@ -4467,15 +4545,15 @@ function renderApiPlan(){
     // 1С хранит продажи скользящим окном — что выпало из него, оттуда уже не достать
     var g=p.salesGap;
     if(g&&g.days>0){
-      html+='<div class="rec-box" style="background:var(--bg-red,rgba(239,68,68,.12));border:1px solid var(--red);color:var(--text);font-size:11px">'+
-        '✕ <b>Разрыв в истории продаж: '+g.days+' дн</b> — с '+esc(g.coveredTo)+' по '+esc(g.windowFrom)+'. '+
-        'Ваши данные заканчиваются неделей '+esc(g.lastWeek)+', а окно 1С начинается позже. '+
-        'Эти продажи 1С уже не отдаст — окно у неё скользящее. '+
-        '<b>Возьмите их выгрузкой из 1С</b> и загрузите через «Из файлов», иначе выручка и окупаемость за этот период останутся неучтёнными.</div>';
-    } else if(g){
-      html+='<div style="font-size:10px;color:var(--text3);margin:-4px 0 8px">История сшивается встык: ваши данные покрыты по '+esc(g.coveredTo)+
-        ', окно 1С с '+esc(g.windowFrom)+' — пропусков нет. У 1С окно '+g.windowDays+' дн, поэтому загружайте не реже чем раз в '+
-        Math.max(7,g.windowDays-7)+' дней, иначе появится дыра.</div>';
+      html+='<div class="rec-box" style="background:var(--bg-orange);border:1px solid var(--orange);color:var(--text);font-size:11px">'+
+        '⚠ <b>В истории продаж не хватает '+g.days+' дн</b> — с '+esc(g.coveredTo)+' по '+esc(g.earliest)+'. '+
+        'Ваши сохранённые недели заканчиваются '+esc(g.lastWeek)+', а данные в 1С начинаются с '+esc(g.earliest)+'. '+
+        'Этот период можно закрыть двумя способами: попросить программиста догнать историю глубже (он это делает одной командой) '+
+        'или загрузить период выгрузкой через «Из файлов».</div>';
+    } else if(g&&!g.noHistory){
+      html+='<div style="font-size:10px;color:var(--text3);margin:-4px 0 8px">История без пропусков: ваши данные покрыты по '+esc(g.coveredTo)+
+        ', в 1С есть продажи с '+esc(g.earliest)+'. Запрошено с '+esc(p.salesFrom||'—')+
+        ' — программа сама берёт период от вашей последней недели, так что пропуск загрузки ничего не теряет.</div>';
     }
   } else if(p.weekFieldBroken){
     html+='<div class="rec-box" style="background:var(--bg-red,rgba(239,68,68,.12));border:1px solid var(--red);color:var(--text);font-size:11px">'+
@@ -4507,6 +4585,9 @@ function renderApiPlan(){
     });
     html+='</tbody></table></div>';
   }
+
+  html+=apiReceiptsBlock(p);
+  html+=apiDiscountsBlock(p);
 
   if(p.newGroups.length){
     html+='<div style="font-size:12px;font-weight:600;margin:14px 0 4px;color:var(--accent2)">Партии 1С без лота ('+p.newGroups.length+')</div>'+
@@ -4583,6 +4664,144 @@ function apiCreateLotFromGroup(gi){
   updateRecosBadge();
   alert('✓ Лот «'+name+'» создан: позиций '+(lot.items||[]).length+', штук '+fmt(g.qty)+
     (cost>0?'':'\n\n⚠ Стоимость не указана — окупаемость и наценка считаться не будут. Впишите её в карточке лота.'));
+}
+// Блок «Оприходовано по 1С»: сверка с тем, что стоит у лота вручную.
+// Само не проставляется — только показывается расхождение и предлагается кнопка.
+function apiReceiptsBlock(p){
+  var r=p.receipts;
+  if(!r)return '';
+  if(r.error)return '<div class="rec-box" style="background:var(--bg-orange);border:1px solid var(--orange);font-size:11px">'+
+    '⚠ Приход из 1С не получен: '+esc(r.error)+'. Поле «оприходовано» останется как есть.</div>';
+  if(!r.rows)return '';
+  var rows=[];
+  p.lotPlans.forEach(function(x){
+    var g=r.byGroup[x.group];if(!g)return;
+    var was=Number(x.lot.totalUnits)||0;
+    if(was===g.qty)return;                       // совпало — показывать нечего
+    rows.push({lot:x.lot,group:x.group,was:was,now:g.qty,docs:g.docCount});
+  });
+  var h='<div style="font-size:12px;font-weight:600;margin:14px 0 4px">📥 Оприходовано по данным 1С</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">'+
+    fmt(r.rows)+' строк по '+r.docCount+' документам'+(r.from?(', '+esc(r.from)+' … '+esc(r.to)):'')+
+    '. Это начальный объём партии — раньше он вводился руками.</div>';
+  if(!rows.length){
+    return h+'<div style="font-size:11px;color:var(--green)">✓ У всех привязанных лотов «оприходовано» совпадает с 1С — менять нечего.</div>';
+  }
+  h+='<div style="overflow-x:auto;max-height:220px;overflow-y:auto"><table><thead><tr><th>Лот</th>'+
+     '<th style="text-align:right">Сейчас стоит</th><th style="text-align:right">По 1С</th><th style="text-align:right">Разница</th><th>Док.</th></tr></thead><tbody>';
+  rows.forEach(function(x){
+    var d=x.now-x.was;
+    h+='<tr><td>'+esc(x.lot.name)+'</td>'+
+       '<td class="mono" style="text-align:right">'+(x.was?fmt(x.was):'—')+'</td>'+
+       '<td class="mono" style="text-align:right">'+fmt(x.now)+'</td>'+
+       '<td class="mono" style="text-align:right;color:'+(d>0?'var(--green)':'var(--orange)')+'">'+(d>0?'+':'')+fmt(d)+'</td>'+
+       '<td class="mono" style="font-size:10px">'+x.docs+'</td></tr>';
+  });
+  h+='</tbody></table></div>'+
+    '<div style="font-size:9px;color:var(--text3);margin-top:4px">⚠ 1С отдаёт приход с '+esc(r.from||'—')+
+    '. Если партия пришла раньше, её число будет неполным — тогда оставьте своё.</div>'+
+    '<div style="margin-top:6px;text-align:right"><button class="btn btn-warn btn-sm" onclick="apiApplyReceipts()">'+
+    '<i class="ti ti-download"></i> Проставить «оприходовано» из 1С ('+rows.length+')</button></div>';
+  return h;
+}
+// Проставляет totalUnits из прихода. Отдельным действием, а не внутри общего применения:
+// это меняет знаменатель окупаемости, такое молча делать нельзя.
+function apiApplyReceipts(){
+  var p=_apiPlan;if(!p||!p.receipts)return;
+  var changed=[];
+  p.lotPlans.forEach(function(x){
+    var g=p.receipts.byGroup[x.group];if(!g)return;
+    var was=Number(x.lot.totalUnits)||0;
+    if(was===g.qty)return;
+    changed.push({lot:x.lot,was:was,now:g.qty});
+  });
+  if(!changed.length){alert('Расхождений нет');return;}
+  var msg='Проставить «оприходовано» из 1С для '+changed.length+' лотов?\n\n'+
+    changed.slice(0,8).map(function(c){return '· '+c.lot.name+': '+(c.was||'—')+' → '+c.now;}).join('\n')+
+    (changed.length>8?'\n…':'')+
+    '\n\nЭто меняет знаменатель окупаемости. Снимок для отката сохраняется.';
+  if(!confirm(msg))return;
+  autoSnapshot('перед простановкой «оприходовано» из 1С');
+  changed.forEach(function(c){
+    c.lot.totalUnits=c.now;
+    calcCosts(c.lot.items,c.lot.cost,c.lot.totalUnits);
+    c.lot.updatedAt=new Date().toISOString();
+    sbUpsert('lots',c.lot.id,c.lot);
+    logAction('load','Оприходовано из 1С: '+(c.was||'—')+' → '+c.now,{lotName:c.lot.name});
+  });
+  save();
+  _apiPlan=apiBuildPlan(_apiRawData);
+  renderApiPlan();
+  alert('✓ Проставлено для '+changed.length+' лотов');
+}
+
+// Блок «Скидки, заведённые в 1С». Показываем намерение из учёта; применяет человек.
+function apiDiscountsBlock(p){
+  var d=p.discounts;
+  if(!d)return '';
+  if(d.error)return '<div class="rec-box" style="background:var(--bg-orange);border:1px solid var(--orange);font-size:11px">'+
+    '⚠ Скидки из 1С не получены: '+esc(d.error)+'</div>';
+  if(!d.rules.length)return '';
+  var h='<div style="font-size:12px;font-weight:600;margin:14px 0 4px">🏷 Скидки, заведённые в 1С ('+d.rules.length+')</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Это правила из учёта — намерение. Фактические скидки с кассы уже учтены в выручке. Ничего не применяется само: смотрите и решайте.</div>'+
+    '<div style="overflow-x:auto"><table><thead><tr><th>Правило</th><th>Скидка</th><th>Действует до</th><th>Состояние</th><th>Позиций</th><th>Лоты</th><th></th></tr></thead><tbody>';
+  d.rules.forEach(function(r,ri){
+    var state=r.revoked?'<span style="color:var(--text3)">снято в 1С</span>'
+             :r.expired?'<span style="color:var(--orange)">срок истёк</span>'
+             :'<span style="color:var(--green)">идёт</span>';
+    var val=r.type==='percent'?('−'+r.value+'%'):(r.type==='fixed_price'?('цена '+fmt(r.value)):('−'+fmt(r.value)+' ₸'));
+    h+='<tr><td style="font-weight:500">'+esc(r.name)+'</td>'+
+       '<td class="mono">'+val+'</td>'+
+       '<td class="mono" style="font-size:10px">'+(r.dateTo?esc(String(r.dateTo).slice(0,10)):'бессрочно')+'</td>'+
+       '<td style="font-size:10px">'+state+'</td>'+
+       '<td class="mono" style="text-align:right">'+fmt(r.productCount)+'</td>'+
+       '<td style="font-size:10px;color:var(--text3);max-width:180px">'+esc(r.lotNames.slice(0,3).join(', ')||'—')+
+         (r.lotNames.length>3?(' +'+(r.lotNames.length-3)):'')+'</td>'+
+       '<td>'+(r.type==='percent'&&!r.revoked&&r.itemNames.length
+         ?'<button class="btn btn-warn btn-sm" onclick="apiApplyDiscountRule('+ri+')">Перенести в программу</button>'
+         :'<span style="font-size:9px;color:var(--text3)">—</span>')+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  var exp=d.rules.filter(function(r){return r.expired;});
+  if(exp.length)h+='<div style="font-size:10px;color:var(--orange);margin-top:5px">⚠ '+exp.length+
+    ' правило со истёкшим сроком всё ещё висит на позициях в 1С — стоит снять там, иначе скидка продолжает действовать на кассе.</div>';
+  return h;
+}
+// Переносит правило 1С в программу как постоянную скидку на позиции.
+// Только на те, что реально есть в лотах, и только с подтверждением.
+function apiApplyDiscountRule(ri){
+  var p=_apiPlan;if(!p||!p.discounts)return;
+  var r=p.discounts.rules[ri];if(!r)return;
+  var byName={};r.itemNames.forEach(function(n){byName[n]=true;});
+  var hits=[];
+  lots.forEach(function(l){
+    if(l.status==='closed')return;
+    (l.items||[]).forEach(function(it){
+      if(!byName[it.key||it.name])return;
+      if(Math.max(it.qty||0,0)<=0)return;
+      hits.push({lot:l,item:it});
+    });
+  });
+  if(!hits.length){alert('Позиции этого правила не найдены среди ваших лотов с остатком.');return;}
+  var already=hits.filter(function(h){return (h.item.discountPct||0)===r.value;}).length;
+  var msg='Правило «'+r.name+'»: −'+r.value+'%'+(r.dateTo?(' до '+String(r.dateTo).slice(0,10)):'')+'\n\n'+
+    'Нашлось позиций в ваших лотах: '+hits.length+
+    (already?('\nИз них уже с такой скидкой: '+already):'')+
+    '\n\nПоставить им постоянную скидку −'+r.value+'%?\n'+
+    'Снимок для отката сохраняется.';
+  if(!confirm(msg))return;
+  autoSnapshot('перед переносом скидки из 1С');
+  var n=0;
+  hits.forEach(function(h){
+    if((h.item.discountPct||0)===r.value)return;
+    setItemDiscount(h.lot,h.item,r.value,'из 1С: '+r.name);
+    n++;
+  });
+  save();
+  logAction('disc','Скидка из 1С «'+r.name+'» перенесена на '+n+' позиций');
+  renderApiPlan();
+  updateRecosBadge();
+  alert('✓ Скидка −'+r.value+'% поставлена '+n+' позициям'+(already?(' ('+already+' уже были)'):''));
 }
 // Привязка партий 1С к существующим лотам: запоминаем в sourceGroups и строим план заново
 function apiBindGroups(){
@@ -4696,28 +4915,22 @@ function apiRowWeek(r){
   var v=r.week||r.period||r.date||r.week_start||r.period_start;
   return v?String(v).slice(0,10):'';
 }
-// Разрыв между накопленной историей и окном продаж 1С.
-// Считаем от последней недели, которая есть хоть у одной позиции: неделя покрывает
-// 7 дней, поэтому «наши данные заканчиваются» на её седьмом дне.
-function apiSalesGap(syncedDays){
-  if(!syncedDays||!syncedDays.length)return null;
-  var first=syncedDays.slice().sort()[0];
-  var lastISO='';
-  lots.forEach(function(l){
-    (l.items||[]).forEach(function(i){
-      (i.weeks||[]).forEach(function(w){
-        var k=weekKey(String(w.label).slice(0,10));
-        if(/^\d{4}-\d{2}-\d{2}$/.test(k)&&k>lastISO)lastISO=k;
-      });
-    });
-  });
-  if(!lastISO)return null;                       // истории ещё нет — сравнивать не с чем
+// Дыра в истории — это период, которого нет НИ У КОГО: наши сохранённые недели
+// закончились раньше, чем начинаются данные в 1С (её earliest_business_date).
+// Из копии 1С дни не выпадают — она хранит всё, что однажды забрала, — поэтому
+// сравнивать надо именно с этой датой, а не с окном конкретного ответа.
+function apiSalesGap(status,syncedDays){
+  var earliest=status&&status.earliest_business_date;
+  if(!earliest&&syncedDays&&syncedDays.length)earliest=syncedDays.slice().sort()[0];
+  if(!earliest||!/^\d{4}-\d{2}-\d{2}$/.test(earliest))return null;
+  var lastISO=apiLastStoredWeek();
+  if(!lastISO)return {days:0,noHistory:true,earliest:earliest};  // своей истории ещё нет
   var coveredTo=new Date(new Date(lastISO).getTime()+6*MS_PER_DAY);
-  var days=Math.round((new Date(first)-coveredTo)/MS_PER_DAY)-1;
+  var days=Math.round((new Date(earliest)-coveredTo)/MS_PER_DAY)-1;
   return {days:days,lastWeek:lastISO,
           coveredTo:coveredTo.toISOString().slice(0,10),
-          windowFrom:first,
-          windowDays:syncedDays.length};
+          earliest:earliest,
+          windowDays:(syncedDays||[]).length};
 }
 function apiToSalesData(catalog,sales){
   var idx=apiBuildCatalogIndex(catalog);
@@ -4751,6 +4964,66 @@ function apiToSalesData(catalog,sales){
     out[name]={weeks:weeks,soldQty:b.soldQty,soldRev:b.soldRev,listAmount:b.listAmount};
   });
   return {sales:out,weeks:labels,rowsTotal:rowsTotal,rowsNoWeek:rowsNoWeek};
+}
+// ===== ПРИХОД =====
+// Сколько штук партии реально оприходовано. Раньше это число владелец вбивал руками.
+// Одна позиция может стоять в документе несколькими строками (разные закупочные цены
+// в одной партии) — 1С их не схлопывает, складываем сами.
+function apiToReceipts(catalog,receipts){
+  var idx=apiBuildCatalogIndex(catalog);
+  var byGroup={},byName={},docs={},noGroup=0,minDate='',maxDate='';
+  (receipts&&receipts.rows||[]).forEach(function(r){
+    var c=idx[r.product_id];if(!c)return;
+    var qty=Number(r.qty)||0;if(!qty)return;
+    var g=c.group||'';
+    if(!g)noGroup++;
+    if(!byGroup[g])byGroup[g]={group:g,qty:0,items:{},docs:{}};
+    byGroup[g].qty+=qty;
+    byGroup[g].items[c.name]=(byGroup[g].items[c.name]||0)+qty;
+    if(r.doc_id)byGroup[g].docs[r.doc_id]=true;
+    byName[c.name]=(byName[c.name]||0)+qty;
+    if(r.doc_id)docs[r.doc_id]=true;
+    var d=String(r.date||'').slice(0,10);
+    if(d){if(!minDate||d<minDate)minDate=d;if(!maxDate||d>maxDate)maxDate=d;}
+  });
+  Object.keys(byGroup).forEach(function(g){byGroup[g].docCount=Object.keys(byGroup[g].docs).length;});
+  return {byGroup:byGroup,byName:byName,
+          rows:(receipts&&receipts.rows||[]).length,
+          docCount:Object.keys(docs).length,
+          noGroup:noGroup,from:minDate,to:maxDate,
+          error:(receipts&&receipts._error)||null};
+}
+// ===== СКИДКИ, ЗАВЕДЁННЫЕ В 1С =====
+// Сегментные правила: намерение, а не факт кассы. Факт приходит разницей сумм в продажах.
+// Ничего не применяем молча — только показываем и предлагаем.
+function apiToDiscounts(catalog,discounts){
+  var idx=apiBuildCatalogIndex(catalog);
+  var out=[];
+  (discounts&&discounts.rows||[]).forEach(function(r){
+    var sc=r.scope||{};
+    var names={},groups={};
+    (sc.products||[]).forEach(function(pid){
+      var c=idx[pid];if(!c)return;
+      names[c.name]=true;
+      if(c.group)groups[c.group]=true;
+    });
+    var today=new Date().toISOString().slice(0,10);
+    var expired=!!(r.date_to&&String(r.date_to).slice(0,10)<today);
+    out.push({
+      id:r.id,name:cleanCell(r.name),
+      type:r.type||'percent',value:Number(r.value)||0,
+      dateFrom:r.date_from||'',dateTo:r.date_to||'',
+      isActive:r.is_active!==false,
+      expired:expired,
+      // «сняли в 1С» отличается от «истёк срок» тем, что даты в прошлом нет
+      revoked:(r.is_active===false&&!expired),
+      itemNames:Object.keys(names),
+      lotNames:Object.keys(groups),
+      productCount:(sc.products||[]).length,
+      charCount:(sc.characteristics||[]).length
+    });
+  });
+  return {rules:out,error:(discounts&&discounts._error)||null};
 }
 // Группы верхнего уровня с составом — как parseGroupedStock (для раскладки по лотам)
 function apiToGroups(catalog,stock){
