@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v88</title>
+<title>FBSM — Управление лотами v89</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v88</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v89</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -4274,6 +4274,10 @@ function apiBuildPlan(data){
   var noWeek=salesData.rowsNoWeek||0, rowsAll=salesData.rowsTotal||0;
   var weekFieldBroken=(rowsAll>0&&noWeek===rowsAll);
   if(weekFieldBroken)salesUsable=false;
+  // 1С держит продажи скользящим окном (на проверке — 31 день). Если между нашей
+  // последней неделей и началом окна образовалась дыра, эти продажи 1С уже не отдаст
+  // никогда — их можно взять только выгрузкой файлом. Молчать об этом нельзя.
+  var gap=apiSalesGap(syncedDays);
 
   var lotPlans=[],newGroups=[];
   groups.forEach(function(g){
@@ -4301,7 +4305,7 @@ function apiBuildPlan(data){
   return {stockMap:stockMap,priceMap:priceMap,salesData:salesData,groups:groups,
           lotPlans:lotPlans,newGroups:newGroups,negatives:negatives,
           salesUsable:salesUsable,syncedDays:syncedDays,
-          weekFieldBroken:weekFieldBroken,salesRowsNoWeek:noWeek,
+          weekFieldBroken:weekFieldBroken,salesRowsNoWeek:noWeek,salesGap:gap,
           catalogCount:(data.catalog.items||[]).length,
           stockRows:(data.stock.rows||[]).length,
           priceRows:(data.prices.rows||[]).length,
@@ -4460,6 +4464,19 @@ function renderApiPlan(){
   if(p.salesUsable){
     html+='<div class="rec-box" style="background:var(--bg-green);border:1px solid var(--green);color:var(--text);font-size:11px">'+
       '✓ Продажи получены за '+p.syncedDays.length+' дн. ('+esc(p.syncedDays[0])+' … '+esc(p.syncedDays[p.syncedDays.length-1])+'), '+fmt(p.salesRows)+' строк. Недельная динамика обновится.</div>';
+    // 1С хранит продажи скользящим окном — что выпало из него, оттуда уже не достать
+    var g=p.salesGap;
+    if(g&&g.days>0){
+      html+='<div class="rec-box" style="background:var(--bg-red,rgba(239,68,68,.12));border:1px solid var(--red);color:var(--text);font-size:11px">'+
+        '✕ <b>Разрыв в истории продаж: '+g.days+' дн</b> — с '+esc(g.coveredTo)+' по '+esc(g.windowFrom)+'. '+
+        'Ваши данные заканчиваются неделей '+esc(g.lastWeek)+', а окно 1С начинается позже. '+
+        'Эти продажи 1С уже не отдаст — окно у неё скользящее. '+
+        '<b>Возьмите их выгрузкой из 1С</b> и загрузите через «Из файлов», иначе выручка и окупаемость за этот период останутся неучтёнными.</div>';
+    } else if(g){
+      html+='<div style="font-size:10px;color:var(--text3);margin:-4px 0 8px">История сшивается встык: ваши данные покрыты по '+esc(g.coveredTo)+
+        ', окно 1С с '+esc(g.windowFrom)+' — пропусков нет. У 1С окно '+g.windowDays+' дн, поэтому загружайте не реже чем раз в '+
+        Math.max(7,g.windowDays-7)+' дней, иначе появится дыра.</div>';
+    }
   } else if(p.weekFieldBroken){
     html+='<div class="rec-box" style="background:var(--bg-red,rgba(239,68,68,.12));border:1px solid var(--red);color:var(--text);font-size:11px">'+
       '✕ 1С прислала '+fmt(p.salesRows)+' строк продаж, но <b>ни в одной не распознана неделя</b> — значит, поле с датой называется не так, как договаривались (ожидается <code>week</code>). '+
@@ -4678,6 +4695,29 @@ function isoToWeekLabel(iso){
 function apiRowWeek(r){
   var v=r.week||r.period||r.date||r.week_start||r.period_start;
   return v?String(v).slice(0,10):'';
+}
+// Разрыв между накопленной историей и окном продаж 1С.
+// Считаем от последней недели, которая есть хоть у одной позиции: неделя покрывает
+// 7 дней, поэтому «наши данные заканчиваются» на её седьмом дне.
+function apiSalesGap(syncedDays){
+  if(!syncedDays||!syncedDays.length)return null;
+  var first=syncedDays.slice().sort()[0];
+  var lastISO='';
+  lots.forEach(function(l){
+    (l.items||[]).forEach(function(i){
+      (i.weeks||[]).forEach(function(w){
+        var k=weekKey(String(w.label).slice(0,10));
+        if(/^\d{4}-\d{2}-\d{2}$/.test(k)&&k>lastISO)lastISO=k;
+      });
+    });
+  });
+  if(!lastISO)return null;                       // истории ещё нет — сравнивать не с чем
+  var coveredTo=new Date(new Date(lastISO).getTime()+6*MS_PER_DAY);
+  var days=Math.round((new Date(first)-coveredTo)/MS_PER_DAY)-1;
+  return {days:days,lastWeek:lastISO,
+          coveredTo:coveredTo.toISOString().slice(0,10),
+          windowFrom:first,
+          windowDays:syncedDays.length};
 }
 function apiToSalesData(catalog,sales){
   var idx=apiBuildCatalogIndex(catalog);
