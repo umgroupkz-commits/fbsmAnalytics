@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v94</title>
+<title>FBSM — Управление лотами v95</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v94</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v95</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -1517,19 +1517,100 @@ function mergeWeeks(oldWeeks,newWeeks){
   oldWeeks=oldWeeks||[];newWeeks=newWeeks||[];
   var byLabel={};
   // старые недели — базовые, имеют приоритет
-  oldWeeks.forEach(function(w){var lbl=(w.label||'').slice(0,10);byLabel[lbl]={label:lbl,qty:w.qty||0,rev:w.rev||0,_hist:w._hist};});
+  oldWeeks.forEach(function(w){var lbl=(w.label||'').slice(0,10);byLabel[lbl]={label:lbl,qty:w.qty||0,rev:w.rev||0,list:w.list||0,_hist:w._hist};});
   // новые недели: новой даты не было → добавляем; дата была, но данные стали полнее
   // (неделя была выгружена частично, до её конца) → берём более полные
   newWeeks.forEach(function(w){
     var lbl=(w.label||'').slice(0,10);
-    var nw={label:lbl,qty:w.qty||0,rev:w.rev||0,_hist:w._hist};
+    var nw={label:lbl,qty:w.qty||0,rev:w.rev||0,list:w.list||0,_hist:w._hist};
     var old=byLabel[lbl];
     if(!old)byLabel[lbl]=nw;
     else if(nw.qty>old.qty||(nw.qty===old.qty&&nw.rev>old.rev))byLabel[lbl]=nw;
+    // сумма по прайсу могла прийти позже самих продаж — не теряем её
+    else if(!old.list&&nw.list)old.list=nw.list;
   });
   // отсортировать хронологически (метки «дд.мм.гггг» как строки сортируются неверно)
   var merged=Object.values(byLabel).sort(function(a,b){var ka=weekKey(a.label),kb=weekKey(b.label);return ka<kb?-1:ka>kb?1:0;});
   return merged;
+}
+// ===== ФАКТИЧЕСКАЯ СКИДКА ПО НЕДЕЛЯМ =====
+// 1С присылает по каждой неделе две суммы: по прайсу и после скидки. Их разница —
+// скидка, реально данная на кассе. Это надёжнее правил из 1С: правило может висеть,
+// а скидку не давать, и наоборот — продавец режет цену вручную.
+// Отсюда программа сама узнаёт, когда скидка появилась и когда её сняли.
+var DISC_NOISE_PCT=3;          // ниже этого — округления и копейки, не скидка
+function weekDiscPct(w){
+  if(!w||!(w.list>0)||!(w.qty>0))return null;   // нет продаж или нет суммы по прайсу — судить не о чем
+  var d=Math.round((1-(w.rev||0)/w.list)*100);
+  if(d<0)d=0;                                    // продали дороже прайса — не наше дело
+  return d;
+}
+// Ряд «неделя → скидка», только по неделям, где были продажи
+function itemDiscSeries(item){
+  return (item&&item.weeks||[]).map(function(w){
+    return {label:w.label,qty:w.qty||0,rev:w.rev||0,disc:weekDiscPct(w)};
+  }).filter(function(x){return x.disc!==null;});
+}
+// Скидка, работающая сейчас: по последней неделе с продажами
+function itemDiscNow(item){
+  var s=itemDiscSeries(item);
+  if(!s.length)return null;
+  var last=s[s.length-1];
+  return last.disc>=DISC_NOISE_PCT?last.disc:0;
+}
+// С какой недели идёт нынешняя скидка (непрерывный хвост с ненулевой скидкой)
+function itemDiscSince(item){
+  var s=itemDiscSeries(item);
+  if(!s.length)return null;
+  if(s[s.length-1].disc<DISC_NOISE_PCT)return null;
+  var i=s.length-1;
+  while(i>0&&s[i-1].disc>=DISC_NOISE_PCT)i--;
+  return s[i].label;
+}
+// Отклик на скидку: темп продаж до неё против темпа при ней.
+// Считается по тем же неделям, что и всё остальное, — ничего вводить не надо.
+function itemDiscEffect(item){
+  // ВСЕ недели, а не только те, где были продажи: у мёртвой позиции недели с нулём —
+  // это и есть «до скидки». Если их выбросить, оживление measured быть не может.
+  var s=(item&&item.weeks||[]).map(function(w){
+    var d=weekDiscPct(w);
+    return {label:w.label,qty:w.qty||0,disc:d===null?0:d,known:d!==null};
+  });
+  if(s.length<2)return {verdict:'nodata',t:'Мало недель — сравнить не с чем'};
+  // хвост со скидкой
+  var i=s.length-1;
+  if(s[i].disc<DISC_NOISE_PCT){
+    // скидки сейчас нет — ищем последний отрезок, когда она была
+    while(i>=0&&s[i].disc<DISC_NOISE_PCT)i--;
+    if(i<0)return {verdict:'none',t:'Скидок на этой позиции не было'};
+  }
+  var end=i;
+  while(i>0&&s[i-1].disc>=DISC_NOISE_PCT)i--;
+  var start=i;
+  var during=s.slice(start,end+1);
+  var before=s.slice(Math.max(0,start-4),start);
+  if(!before.length)return {verdict:'nodata',t:'Нет недель до скидки — сравнить не с чем'};
+  var avg=function(a){return a.length?a.reduce(function(x,y){return x+y.qty;},0)/a.length:0;};
+  var b=avg(before),d=avg(during);
+  var disc=Math.round(during.reduce(function(x,y){return x+y.disc;},0)/during.length);
+  var after=s.slice(end+1);
+  var a=avg(after);
+  var ratio=b>0?(d/b):(d>0?99:0);
+  var res={before:b,during:d,after:a,disc:disc,weeks:during.length,ratio:ratio,
+           from:during[0].label,to:during[during.length-1].label,
+           running:end===s.length-1};
+  if(b===0&&d>0){res.verdict='revived';res.t='Оживило: стояла мёртво, при −'+disc+'% пошла ('+fmtD(d)+' шт/нед)';}
+  else if(ratio>=1.5){res.verdict='worked';res.t='Сработало: '+fmtD(b)+' → '+fmtD(d)+' шт/нед при −'+disc+'%';}
+  else if(ratio>=1.1){res.verdict='weak';res.t='Слабо: '+fmtD(b)+' → '+fmtD(d)+' шт/нед при −'+disc+'%';}
+  else if(!res.running&&a>0&&a<b*0.6){res.verdict='hangover';res.t='Выбрала спрос вперёд: после скидки темп упал до '+fmtD(a)+' шт/нед';}
+  else {res.verdict='failed';res.t='Не помогло: '+fmtD(b)+' → '+fmtD(d)+' шт/нед при −'+disc+'%';}
+  return res;
+}
+function discEffectColor(v){
+  return v==='worked'||v==='revived'?'var(--green)'
+        :v==='weak'?'var(--yellow)'
+        :v==='hangover'?'var(--orange)'
+        :v==='failed'?'var(--red)':'var(--text3)';
 }
 // Пересчитать soldQty/soldRev позиции из её недель (после слияния)
 function recalcSoldFromWeeks(item){
@@ -1571,6 +1652,8 @@ function buildItems(stockMap,priceMap,salesData,existingItems){
     }
     items.push({
       id:ex?ex.id:uid(),name:displayName,baseName:s.name,char:s.char||'',key:key,cat:'1С',qty:s.qty,price:price,
+      // Где лежит: {склад: штук}. Приходит из 1С; при загрузке файлами остаётся прежним
+      wh:(s.wh&&Object.keys(s.wh).length)?s.wh:(ex?ex.wh:null),
       // Дата фактического появления позиции: у дозагруженных позже позиций возраст
       // считается от неё, а не от даты лота (иначе новинка сразу «лежит N недель»)
       receivedDate:ex?ex.receivedDate:(existingItems?new Date().toISOString().slice(0,10):undefined),
@@ -5012,8 +5095,12 @@ function apiToStockMap(catalog,stock){
     var c=idx[r.product_id];if(!c)return;
     var qty=Number(r.qty)||0;
     if(qty<=0)return;                       // отрицательные и нулевые в расчёт остатка не берём
-    if(map[c.name])map[c.name].qty+=qty;
-    else map[c.name]={name:c.name,char:'',key:c.name,qty:qty};
+    if(!map[c.name])map[c.name]={name:c.name,char:'',key:c.name,qty:0,wh:{}};
+    map[c.name].qty+=qty;
+    // Разбивка по складам: раньше суммировали и теряли её, а без неё нельзя
+    // дать точечное задание — «снять с Манаса», «везти с Республики».
+    var wn=cleanCell(r.warehouse_name)||String(r.warehouse_id||'').slice(0,8)||'—';
+    map[c.name].wh[wn]=(map[c.name].wh[wn]||0)+qty;
   });
   return map;
 }
@@ -5087,8 +5174,12 @@ function apiToSalesData(catalog,sales){
     var rev=(Number(r.amount_with_discount)||0)-(Number(r.returns_amount)||0);
     if(!byName[c.name])byName[c.name]={weeks:{},soldQty:0,soldRev:0,listAmount:0};
     var b=byName[c.name];
-    if(!b.weeks[lbl])b.weeks[lbl]={label:lbl,qty:0,rev:0};
+    if(!b.weeks[lbl])b.weeks[lbl]={label:lbl,qty:0,rev:0,list:0};
     b.weeks[lbl].qty+=qty;b.weeks[lbl].rev+=rev;
+    // Сумма по прайсу за ту же неделю. Разница с фактической выручкой — это и есть
+    // скидка, реально данная на кассе. По ней программа сама видит, когда скидка
+    // появилась и когда её сняли, без ручного ввода и без правил из 1С.
+    b.weeks[lbl].list+=(Number(r.amount_without_discount)||0);
     b.soldQty+=qty;b.soldRev+=rev;
     b.listAmount+=(Number(r.amount_without_discount)||0);               // сумма по прайсу — для факт. скидки
   });
@@ -5096,7 +5187,7 @@ function apiToSalesData(catalog,sales){
   var out={};
   Object.keys(byName).forEach(function(name){
     var b=byName[name];
-    var weeks=labels.map(function(l){return b.weeks[l]||{label:l,qty:0,rev:0};});
+    var weeks=labels.map(function(l){return b.weeks[l]||{label:l,qty:0,rev:0,list:0};});
     out[name]={weeks:weeks,soldQty:b.soldQty,soldRev:b.soldRev,listAmount:b.listAmount};
   });
   return {sales:out,weeks:labels,rowsTotal:rowsTotal,rowsNoWeek:rowsNoWeek};
@@ -6594,10 +6685,11 @@ function openItemStats(itemId){
   var l=getLot(activeLotId);if(!l)return;
   var item=getItem(l,itemId);if(!item)return;
   var weeks=item.weeks||[];
-  var tableRows='';weeks.forEach(function(w){tableRows+='<tr><td class="mono">'+w.label+'</td><td class="mono" style="text-align:right">'+(w.qty||0)+'</td><td class="mono" style="text-align:right">'+fmt(w.rev||0)+'</td></tr>';});
   var totalQty=weeks.reduce(function(s,w){return s+(w.qty||0);},0);
   var totalRev=weeks.reduce(function(s,w){return s+(w.rev||0);},0);
   var remain=Math.max(item.qty||0,0);
+  var discNow=itemDiscNow(item), discSince=itemDiscSince(item);
+  var eff=itemDiscEffect(item);
 
   var html='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px">'+
     '<div style="flex:1"><div class="modal-title">'+esc(item.name)+'</div>'+
@@ -6608,15 +6700,51 @@ function openItemStats(itemId){
     '<div class="stat-card"><div class="stat-lbl">Всего продано</div><div class="stat-val">'+totalQty+' шт</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Выручка</div><div class="stat-val">'+fmt(totalRev)+' ₸</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Ср/мес</div><div class="stat-val">'+(item.soldQty>0?fmtD(item.avgPerMonth):'—')+'</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Запас</div><div class="stat-val '+getCoverClass(item.coverMonths)+'">'+(item.coverMonths!==null&&item.soldQty>0?fmtD(item.coverMonths)+' мес':'—')+'</div></div>'+
+    '<div class="stat-card"><div class="stat-lbl">Скидка сейчас</div><div class="stat-val" style="color:'+(discNow?'var(--orange)':'var(--text3)')+'">'+
+      (discNow===null?'—':(discNow?('−'+discNow+'%'):'нет'))+'</div>'+
+      (discSince?'<div class="stat-sub">с '+esc(discSince)+'</div>':'')+'</div>'+
     '</div>';
+
+  // Где лежит — чтобы задание давать точечно, а не «снимите везде»
+  if(item.wh&&Object.keys(item.wh).length){
+    var whs=Object.keys(item.wh).sort(function(x,y){return item.wh[y]-item.wh[x];});
+    html+='<div style="font-size:11px;font-weight:600;margin:4px 0 6px">📍 Где лежит</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">';
+    whs.forEach(function(w){
+      var share=remain>0?Math.round(item.wh[w]/remain*100):0;
+      html+='<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px">'+
+        esc(w)+' <b class="mono">'+fmt(item.wh[w])+'</b>'+(share?' <span style="color:var(--text3)">'+share+'%</span>':'')+'</div>';
+    });
+    html+='</div>';
+  }
+
+  // Отклик на скидку — главное, ради чего ряд и собирается
+  if(eff.verdict!=='none'&&eff.verdict!=='nodata'){
+    html+='<div class="rec-box" style="background:var(--surface2);border:1px solid '+discEffectColor(eff.verdict)+';font-size:11px;color:var(--text)">'+
+      '<b style="color:'+discEffectColor(eff.verdict)+'">'+esc(eff.t)+'</b>'+
+      '<div style="font-size:10px;color:var(--text3);margin-top:3px">Скидка '+esc(eff.from)+' … '+esc(eff.to)+
+      ' ('+eff.weeks+' нед)'+(eff.running?', идёт сейчас':', уже снята')+
+      (!eff.running&&eff.after?'. После неё '+fmtD(eff.after)+' шт/нед':'')+'</div></div>';
+  }
+
   if(weeks.length===0){
-    html+='<div class="empty-state"><div style="font-size:32px">📊</div><div>Нет данных о продажах</div><div style="font-size:11px">Загрузите файл продаж</div></div>';
+    html+='<div class="empty-state"><div style="font-size:32px">📊</div><div>Нет данных о продажах</div><div style="font-size:11px">Загрузите данные из 1С</div></div>';
   } else {
-    html+='<div style="overflow-x:auto;max-height:300px;overflow-y:auto"><table><thead><tr><th>Неделя</th><th style="text-align:right">Продано шт</th><th style="text-align:right">Выручка ₸</th></tr></thead><tbody>'+tableRows+'</tbody></table></div>';
-    if(item.hadPromo){
-      html+='<div style="margin-top:10px;background:var(--bg-yellow);border:1px solid var(--yellow);border-radius:8px;padding:8px 12px;font-size:11px;color:var(--yellow)">⚠ Этот товар участвовал в акциях — всплески продаж могут быть связаны с акцией, а не органическим спросом.</div>';
-    }
+    var rows='';
+    weeks.forEach(function(w){
+      var d=weekDiscPct(w);
+      var dTxt=d===null?'<span style="color:var(--text3)">—</span>'
+              :d>=DISC_NOISE_PCT?('<span style="color:var(--orange)">−'+d+'%</span>')
+              :'<span style="color:var(--text3)">0</span>';
+      rows+='<tr><td class="mono">'+w.label+'</td>'+
+        '<td class="mono" style="text-align:right">'+(w.qty||0)+'</td>'+
+        '<td class="mono" style="text-align:right">'+fmt(w.rev||0)+'</td>'+
+        '<td class="mono" style="text-align:right">'+dTxt+'</td></tr>';
+    });
+    html+='<div style="overflow-x:auto;max-height:300px;overflow-y:auto"><table><thead><tr><th>Неделя</th>'+
+      '<th style="text-align:right">Продано шт</th><th style="text-align:right">Выручка ₸</th>'+
+      '<th style="text-align:right">Скидка</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+      '<div style="font-size:9px;color:var(--text3);margin-top:5px">Скидка считается из данных 1С: сумма по прайсу против фактической выручки за ту же неделю. Прочерк — продаж не было, судить не о чем.</div>';
   }
   document.getElementById('itemstats-body').innerHTML=html;
   document.getElementById('modal-itemstats').style.display='flex';
