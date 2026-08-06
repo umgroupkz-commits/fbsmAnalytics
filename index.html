@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v87</title>
+<title>FBSM — Управление лотами v88</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v87</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v88</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -4268,6 +4268,12 @@ function apiBuildPlan(data){
   // Продажам можно верить только если 1С подтвердила, за какие дни есть данные
   var syncedDays=(data.sales&&data.sales.synced_days)||[];
   var salesUsable=syncedDays.length>0;
+  // Строки продаж без распознанной недели разложить нельзя. Если таких большинство —
+  // это расхождение форматов, а не «ничего не продали»: применять такие продажи
+  // опаснее, чем не применять, поэтому останавливаемся и говорим об этом прямо.
+  var noWeek=salesData.rowsNoWeek||0, rowsAll=salesData.rowsTotal||0;
+  var weekFieldBroken=(rowsAll>0&&noWeek===rowsAll);
+  if(weekFieldBroken)salesUsable=false;
 
   var lotPlans=[],newGroups=[];
   groups.forEach(function(g){
@@ -4295,6 +4301,7 @@ function apiBuildPlan(data){
   return {stockMap:stockMap,priceMap:priceMap,salesData:salesData,groups:groups,
           lotPlans:lotPlans,newGroups:newGroups,negatives:negatives,
           salesUsable:salesUsable,syncedDays:syncedDays,
+          weekFieldBroken:weekFieldBroken,salesRowsNoWeek:noWeek,
           catalogCount:(data.catalog.items||[]).length,
           stockRows:(data.stock.rows||[]).length,
           priceRows:(data.prices.rows||[]).length,
@@ -4453,6 +4460,11 @@ function renderApiPlan(){
   if(p.salesUsable){
     html+='<div class="rec-box" style="background:var(--bg-green);border:1px solid var(--green);color:var(--text);font-size:11px">'+
       '✓ Продажи получены за '+p.syncedDays.length+' дн. ('+esc(p.syncedDays[0])+' … '+esc(p.syncedDays[p.syncedDays.length-1])+'), '+fmt(p.salesRows)+' строк. Недельная динамика обновится.</div>';
+  } else if(p.weekFieldBroken){
+    html+='<div class="rec-box" style="background:var(--bg-red,rgba(239,68,68,.12));border:1px solid var(--red);color:var(--text);font-size:11px">'+
+      '✕ 1С прислала '+fmt(p.salesRows)+' строк продаж, но <b>ни в одной не распознана неделя</b> — значит, поле с датой называется не так, как договаривались (ожидается <code>week</code>). '+
+      '<b>Продажи применять не будем</b>: разложить их по неделям нельзя, а записать нулями — значит стереть вашу выручку. '+
+      'Покажите это сообщение программисту: нужно поле <code>week</code> в строках <code>/goods/sales</code>.</div>';
   } else {
     html+='<div class="rec-box" style="background:var(--bg-orange);border:1px solid var(--orange);color:var(--text);font-size:11px">'+
       '⚠ Продажи за запрошенный период 1С пока не отдала (окно данных ещё наполняется). '+
@@ -4659,14 +4671,29 @@ function isoToWeekLabel(iso){
   var m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m?(m[3]+'.'+m[2]+'.'+m[1]):String(iso||'');
 }
+// Дата недели в строке продаж. По ТЗ поле называется week, но имя — единственное,
+// что нас отделяет от тихой потери всех продаж: не распознали → неделя пустая →
+// при слиянии продано пересчитается по неделям и обнулится. Поэтому принимаем
+// разумные варианты имени и сообщаем наверх, если не нашли ни одного.
+function apiRowWeek(r){
+  var v=r.week||r.period||r.date||r.week_start||r.period_start;
+  return v?String(v).slice(0,10):'';
+}
 function apiToSalesData(catalog,sales){
   var idx=apiBuildCatalogIndex(catalog);
   var weekKeys=(sales&&sales.weeks||[]).slice().sort();
   var labels=weekKeys.map(isoToWeekLabel);
-  var byName={};
+  var seen={};labels.forEach(function(l){seen[l]=true;});
+  var byName={},rowsTotal=0,rowsNoWeek=0;
   (sales&&sales.rows||[]).forEach(function(r){
     var c=idx[r.product_id];if(!c)return;
-    var lbl=isoToWeekLabel(r.week);
+    rowsTotal++;
+    var iso=apiRowWeek(r);
+    if(!iso){rowsNoWeek++;return;}                                       // без даты строку не разложить
+    var lbl=isoToWeekLabel(iso);
+    // Неделя, которой не было в списке weeks, всё равно попадает в разбор:
+    // список мог прийти неполным, а терять продажи из-за этого нельзя.
+    if(!seen[lbl]){seen[lbl]=true;labels.push(lbl);}
     var qty=(Number(r.qty)||0)-(Number(r.returns_qty)||0);              // возвраты вычитаем
     var rev=(Number(r.amount_with_discount)||0)-(Number(r.returns_amount)||0);
     if(!byName[c.name])byName[c.name]={weeks:{},soldQty:0,soldRev:0,listAmount:0};
@@ -4676,13 +4703,14 @@ function apiToSalesData(catalog,sales){
     b.soldQty+=qty;b.soldRev+=rev;
     b.listAmount+=(Number(r.amount_without_discount)||0);               // сумма по прайсу — для факт. скидки
   });
+  labels.sort(function(a,b){var ka=weekKey(a),kb=weekKey(b);return ka<kb?-1:ka>kb?1:0;});
   var out={};
   Object.keys(byName).forEach(function(name){
     var b=byName[name];
     var weeks=labels.map(function(l){return b.weeks[l]||{label:l,qty:0,rev:0};});
     out[name]={weeks:weeks,soldQty:b.soldQty,soldRev:b.soldRev,listAmount:b.listAmount};
   });
-  return {sales:out,weeks:labels};
+  return {sales:out,weeks:labels,rowsTotal:rowsTotal,rowsNoWeek:rowsNoWeek};
 }
 // Группы верхнего уровня с составом — как parseGroupedStock (для раскладки по лотам)
 function apiToGroups(catalog,stock){
