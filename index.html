@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v91</title>
+<title>FBSM — Управление лотами v92</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v91</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v92</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -4761,8 +4761,10 @@ function apiDiscountsBlock(p){
     '⚠ Скидки из 1С не получены: '+esc(d.error)+'</div>';
   if(!d.rules.length)return '';
   var h='<div style="font-size:12px;font-weight:600;margin:14px 0 4px">🏷 Скидки, заведённые в 1С ('+d.rules.length+')</div>'+
-    '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Это правила из учёта — намерение. Фактические скидки с кассы уже учтены в выручке. Ничего не применяется само: смотрите и решайте.</div>'+
-    '<div style="overflow-x:auto"><table><thead><tr><th>Правило</th><th>Скидка</th><th>Действует до</th><th>Состояние</th><th>Позиций</th><th>Лоты</th><th></th></tr></thead><tbody>';
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Это правила из учёта — намерение. Фактические скидки с кассы уже учтены в выручке. Ничего не применяется само: смотрите и решайте.<br>'+
+    '«Товаров» — сколько наименований под правилом, «размеров» — сколько конкретных размеров-цветов. Программа считает по наименованию целиком.</div>'+
+    '<div style="overflow-x:auto"><table><thead><tr><th>Правило</th><th>Скидка</th><th>Действует до</th><th>Состояние</th>'+
+    '<th style="text-align:right">Товаров</th><th style="text-align:right">Размеров</th><th>Лоты</th><th></th></tr></thead><tbody>';
   d.rules.forEach(function(r,ri){
     var state=r.revoked?'<span style="color:var(--text3)">снято в 1С</span>'
              :r.expired?'<span style="color:var(--orange)">срок истёк</span>'
@@ -4772,8 +4774,11 @@ function apiDiscountsBlock(p){
        '<td class="mono">'+val+'</td>'+
        '<td class="mono" style="font-size:10px">'+(r.dateTo?esc(String(r.dateTo).slice(0,10)):'бессрочно')+'</td>'+
        '<td style="font-size:10px">'+state+'</td>'+
-       '<td class="mono" style="text-align:right">'+fmt(r.productCount)+
-         (r.partialSizes?'<div style="font-size:8px;color:var(--orange);font-family:var(--font)">не все размеры</div>':'')+'</td>'+
+       '<td class="mono" style="text-align:right">'+fmt(r.productCount)+'</td>'+
+       '<td class="mono" style="text-align:right">'+fmt(r.charCount)+
+         (r.partialSizes
+           ? '<div style="font-size:8px;color:var(--orange);font-family:var(--font)">из '+fmt(r.charTotal)+' — не все</div>'
+           : (r.charTotal?'<div style="font-size:8px;color:var(--text3);font-family:var(--font)">все</div>':''))+'</td>'+
        '<td style="font-size:10px;color:var(--text3);max-width:180px">'+esc(r.lotNames.slice(0,3).join(', ')||'—')+
          (r.lotNames.length>3?(' +'+(r.lotNames.length-3)):'')+'</td>'+
        '<td>'+(r.type==='percent'&&!r.revoked&&r.itemNames.length
