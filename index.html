@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v90</title>
+<title>FBSM — Управление лотами v91</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v90</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v91</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -4687,21 +4687,38 @@ function apiReceiptsBlock(p){
   if(!rows.length){
     return h+'<div style="font-size:11px;color:var(--green)">✓ У всех привязанных лотов «оприходовано» совпадает с 1С — менять нечего.</div>';
   }
-  h+='<div style="overflow-x:auto;max-height:220px;overflow-y:auto"><table><thead><tr><th>Лот</th>'+
+  // Если 1С даёт МЕНЬШЕ, чем стоит вручную, — почти наверняка партия пришла раньше,
+  // чем начинается приход в 1С, и её начало туда не попало. Проставить такое —
+  // занизить объём партии. Такие строки в массовое действие не берём.
+  var safe=rows.filter(function(x){return x.now>=x.was;});
+  var risky=rows.filter(function(x){return x.now<x.was;});
+  h+='<div style="overflow-x:auto;max-height:240px;overflow-y:auto"><table><thead><tr><th>Лот</th>'+
      '<th style="text-align:right">Сейчас стоит</th><th style="text-align:right">По 1С</th><th style="text-align:right">Разница</th><th>Док.</th></tr></thead><tbody>';
   rows.forEach(function(x){
     var d=x.now-x.was;
-    h+='<tr><td>'+esc(x.lot.name)+'</td>'+
+    var bad=x.now<x.was;
+    h+='<tr'+(bad?' style="background:var(--bg-orange)"':'')+'><td>'+(bad?'⚠ ':'')+esc(x.lot.name)+'</td>'+
        '<td class="mono" style="text-align:right">'+(x.was?fmt(x.was):'—')+'</td>'+
        '<td class="mono" style="text-align:right">'+fmt(x.now)+'</td>'+
        '<td class="mono" style="text-align:right;color:'+(d>0?'var(--green)':'var(--orange)')+'">'+(d>0?'+':'')+fmt(d)+'</td>'+
        '<td class="mono" style="font-size:10px">'+x.docs+'</td></tr>';
   });
-  h+='</tbody></table></div>'+
-    '<div style="font-size:9px;color:var(--text3);margin-top:4px">⚠ 1С отдаёт приход с '+esc(r.from||'—')+
-    '. Если партия пришла раньше, её число будет неполным — тогда оставьте своё.</div>'+
-    '<div style="margin-top:6px;text-align:right"><button class="btn btn-warn btn-sm" onclick="apiApplyReceipts()">'+
-    '<i class="ti ti-download"></i> Проставить «оприходовано» из 1С ('+rows.length+')</button></div>';
+  h+='</tbody></table></div>';
+  if(risky.length){
+    h+='<div class="rec-box" style="background:var(--bg-orange);border:1px solid var(--orange);font-size:11px;margin-top:6px">'+
+      '⚠ У '+risky.length+' лот'+(risky.length===1?'а':'ов')+' 1С даёт <b>меньше</b>, чем стоит сейчас ('+
+      esc(risky.slice(0,3).map(function(x){return x.lot.name+': '+fmt(x.was)+' → '+fmt(x.now);}).join('; '))+
+      (risky.length>3?'…':'')+'). Скорее всего партия пришла до '+esc(r.from||'—')+
+      ', и её начала в 1С просто нет. <b>Такие лоты кнопка не трогает</b> — если всё же хотите, правьте вручную в карточке лота.</div>';
+  }
+  h+='<div style="font-size:9px;color:var(--text3);margin-top:4px">Приход в 1С есть с '+esc(r.from||'—')+
+    '. Для партий, пришедших раньше, число будет неполным.</div>';
+  if(safe.length){
+    h+='<div style="margin-top:6px;text-align:right"><button class="btn btn-warn btn-sm" onclick="apiApplyReceipts()">'+
+      '<i class="ti ti-download"></i> Проставить «оприходовано» из 1С ('+safe.length+')</button></div>';
+  } else {
+    h+='<div style="margin-top:6px;font-size:10px;color:var(--text3);text-align:right">Безопасных для простановки лотов нет</div>';
+  }
   return h;
 }
 // Проставляет totalUnits из прихода. Отдельным действием, а не внутри общего применения:
@@ -4713,6 +4730,7 @@ function apiApplyReceipts(){
     var g=p.receipts.byGroup[x.group];if(!g)return;
     var was=Number(x.lot.totalUnits)||0;
     if(was===g.qty)return;
+    if(g.qty<was)return;      // 1С даёт меньше — партия старше её данных, не трогаем
     changed.push({lot:x.lot,was:was,now:g.qty});
   });
   if(!changed.length){alert('Расхождений нет');return;}
@@ -4754,7 +4772,8 @@ function apiDiscountsBlock(p){
        '<td class="mono">'+val+'</td>'+
        '<td class="mono" style="font-size:10px">'+(r.dateTo?esc(String(r.dateTo).slice(0,10)):'бессрочно')+'</td>'+
        '<td style="font-size:10px">'+state+'</td>'+
-       '<td class="mono" style="text-align:right">'+fmt(r.productCount)+'</td>'+
+       '<td class="mono" style="text-align:right">'+fmt(r.productCount)+
+         (r.partialSizes?'<div style="font-size:8px;color:var(--orange);font-family:var(--font)">не все размеры</div>':'')+'</td>'+
        '<td style="font-size:10px;color:var(--text3);max-width:180px">'+esc(r.lotNames.slice(0,3).join(', ')||'—')+
          (r.lotNames.length>3?(' +'+(r.lotNames.length-3)):'')+'</td>'+
        '<td>'+(r.type==='percent'&&!r.revoked&&r.itemNames.length
@@ -4764,7 +4783,13 @@ function apiDiscountsBlock(p){
   h+='</tbody></table></div>';
   var exp=d.rules.filter(function(r){return r.expired;});
   if(exp.length)h+='<div style="font-size:10px;color:var(--orange);margin-top:5px">⚠ '+exp.length+
-    ' правило со истёкшим сроком всё ещё висит на позициях в 1С — стоит снять там, иначе скидка продолжает действовать на кассе.</div>';
+    ' правило с истёкшим сроком всё ещё висит на позициях в 1С — стоит снять там, иначе скидка продолжает действовать на кассе.</div>';
+  var part=d.rules.filter(function(r){return r.partialSizes;});
+  if(part.length)h+='<div style="font-size:10px;color:var(--orange);margin-top:5px">⚠ У '+part.length+
+    ' правил'+(part.length===1?'а':'') +' скидка стоит не на все размеры ('+
+    esc(part.map(function(r){return r.name+': '+r.charCount+' из '+r.charTotal;}).join('; '))+
+    '). Программа считает позицию целиком, поэтому перенос поставит скидку и на размеры, которых в правиле нет. '+
+    'Если это важно — переносите не правилом, а вручную нужным позициям.</div>';
   return h;
 }
 // Переносит правило 1С в программу как постоянную скидку на позиции.
@@ -4787,6 +4812,9 @@ function apiApplyDiscountRule(ri){
   var msg='Правило «'+r.name+'»: −'+r.value+'%'+(r.dateTo?(' до '+String(r.dateTo).slice(0,10)):'')+'\n\n'+
     'Нашлось позиций в ваших лотах: '+hits.length+
     (already?('\nИз них уже с такой скидкой: '+already):'')+
+    (r.partialSizes?('\n\n⚠ В 1С скидка стоит не на все размеры ('+r.charCount+' из '+r.charTotal+').\n'+
+      'Программа считает позицию целиком, поэтому скидка встанет и на размеры,\n'+
+      'которых в правиле нет.'):'')+
     '\n\nПоставить им постоянную скидку −'+r.value+'%?\n'+
     'Снимок для отката сохраняется.';
   if(!confirm(msg))return;
@@ -4998,13 +5026,20 @@ function apiToReceipts(catalog,receipts){
 // Ничего не применяем молча — только показываем и предлагаем.
 function apiToDiscounts(catalog,discounts){
   var idx=apiBuildCatalogIndex(catalog);
+  // Сколько всего размеров/цветов у товара — чтобы понять, охватывает правило
+  // позицию целиком или только часть размеров
+  var charsOf={};
+  ((catalog&&catalog.items)||[]).forEach(function(it){
+    charsOf[it.id]=((it.characteristics||[]).length)||0;
+  });
   var out=[];
   (discounts&&discounts.rows||[]).forEach(function(r){
     var sc=r.scope||{};
-    var names={},groups={};
+    var names={},groups={},charsTotal=0;
     (sc.products||[]).forEach(function(pid){
       var c=idx[pid];if(!c)return;
       names[c.name]=true;
+      charsTotal+=(charsOf[pid]||0);
       if(c.group)groups[c.group]=true;
     });
     var today=new Date().toISOString().slice(0,10);
@@ -5020,7 +5055,11 @@ function apiToDiscounts(catalog,discounts){
       itemNames:Object.keys(names),
       lotNames:Object.keys(groups),
       productCount:(sc.products||[]).length,
-      charCount:(sc.characteristics||[]).length
+      charCount:(sc.characteristics||[]).length,
+      charTotal:charsTotal,
+      // Правило может охватывать не все размеры товара. Программа считает по
+      // наименованию целиком, поэтому перенос затронет и размеры без скидки.
+      partialSizes:(charsTotal>0&&(sc.characteristics||[]).length>0&&(sc.characteristics||[]).length<charsTotal)
     });
   });
   return {rules:out,error:(discounts&&discounts._error)||null};
