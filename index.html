@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v96</title>
+<title>FBSM — Управление лотами v97</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v96</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v97</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -215,7 +215,7 @@ tr:hover td{background:#1a2030}
     <label style="font-size:10px;color:var(--text2);display:flex;align-items:center;gap:5px"><input type="checkbox" id="goods-season" onchange="renderGoods()" style="width:13px;height:13px">прошлый сезон</label>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
       <button class="btn btn-ghost btn-sm" onclick="exportGoodsToExcel()"><i class="ti ti-file-spreadsheet"></i> В Excel</button>
-      <button class="btn btn-warn btn-sm" onclick="goodsBulkToPromo()">🏷 В акцию (<span id="goods-sel-count">0</span>)</button>
+      <button class="btn btn-warn btn-sm" onclick="goodsBulkToPromo()">👁 В список наблюдения (<span id="goods-sel-count">0</span>)</button>
     </div>
   </div>
   <div style="padding:14px 20px;flex:1" id="goods-content"></div>
@@ -3615,7 +3615,7 @@ function renderDetail(){
     '<button class="btn btn-ghost btn-sm" onclick="selectAllFiltered()">☑ Выделить все</button>'+
     '<button class="btn btn-ghost btn-sm" onclick="deselectAll()">☐ Снять</button>'+
     '<span class="bulk-count">'+(selCount>0?'Выбрано: '+selCount:'')+'</span>'+
-    (selCount>0?'<div style="margin-left:auto;display:flex;gap:6px;align-items:center"><button class="btn btn-warn btn-sm" onclick="bulkMoveToPromo(true)">🏷 Перенести в акцию →</button></div>':'')+
+    (selCount>0?'<div style="margin-left:auto;display:flex;gap:6px;align-items:center"><button class="btn btn-warn btn-sm" onclick="detailSelectedToWatch()">👁 В список наблюдения</button></div>':'')+
     '</div>';
 
   var netColor=m.netProfit>=0?'var(--green)':'var(--red)';
@@ -3778,9 +3778,18 @@ function selectAllFiltered(){getFilteredIds().forEach(function(id){selectedItems
 function deselectAll(){selectedItems=new Set();lastCheckedIdx=null;renderDetail();}
 
 // ===== PROMO PICKER (move selected to promo) =====
+// Раньше открывал выбор акции. Акции теперь ставит 1С, поэтому обе точки входа
+// из карточки лота (чип «в акцию» в строке и кнопка при отмеченных) ведут
+// в список наблюдения — задание для 1С.
 function openPromoPickerFor(itemIds){
-  selectedItems=new Set(itemIds);
-  bulkMoveToPromo(true);
+  if(!activeLotId)return;
+  recosSelected=new Set((itemIds||[]).map(function(id){return activeLotId+':'+id;}));
+  watchCreateFromSelection();
+}
+function detailSelectedToWatch(){
+  if(!selectedItems.size){alert('Отметьте позиции галочками');return;}
+  openPromoPickerFor(Array.from(selectedItems));
+  selectedItems=new Set();
 }
 function bulkMoveToPromo(forceShowPicker){
   var l=getLot(activeLotId);if(!l)return;
@@ -3959,7 +3968,7 @@ function renderHelp(){
     '<a onclick="document.getElementById(\'h-metrics\').scrollIntoView({behavior:\'smooth\'})">4. Как читать показатели</a>'+
     '<a onclick="document.getElementById(\'h-disc\').scrollIntoView({behavior:\'smooth\'})">5. Логика скидок (лестница, периоды)</a>'+
     '<a onclick="document.getElementById(\'h-liq\').scrollIntoView({behavior:\'smooth\'})">6. Слив остатков</a>'+
-    '<a onclick="document.getElementById(\'h-promo\').scrollIntoView({behavior:\'smooth\'})">7. Акции (временные, смешанные)</a>'+
+    '<a onclick="document.getElementById(\'h-promo\').scrollIntoView({behavior:\'smooth\'})">7. Наблюдение — скидки из 1С и отклик</a>'+
     '<a onclick="document.getElementById(\'h-recos\').scrollIntoView({behavior:\'smooth\'})">8. Вкладка «Действия»</a>'+
     '<a onclick="document.getElementById(\'h-access\').scrollIntoView({behavior:\'smooth\'})">9. Вход и доступ сотрудников</a>'+
     '<a onclick="document.getElementById(\'h-settings\').scrollIntoView({behavior:\'smooth\'})">10. Настройки</a>'+
@@ -4093,17 +4102,16 @@ function renderHelp(){
   '</div>'+
 
   // 7. PROMO
-  '<div class="help-sec" id="h-promo"><h2>7. Акции</h2>'+
-    '<p>Акция — временная скидка с дедлайном. Создаёт срочность («только до конца недели»), после окончания цена возвращается. В отличие от постоянной скидки — это разовый эксперимент «оживёт ли товар».</p>'+
-    '<h3>Как создать</h3>'+
-    '<ul>'+
-    '<li><b>Из лота</b> — открой лот, вкладка «Скидки/Акции», отметь позиции, добавь в акцию.</li>'+
-    '<li><b>Из рекомендаций</b> — вкладка «Рекомендации», раздел «Кандидаты в акцию», отметь галочками, «Создать акцию».</li>'+
-    '</ul>'+
-    '<h3>Смешанные акции</h3>'+
-    '<p>Акция может содержать позиции <b>из разных лотов</b>. Не обязательно монобренд по одному лоту — можешь собрать смешанную акцию из футболок и джинсов сразу. Отмечаешь галочками позиции любых лотов → одна акция.</p>'+
-    '<h3>Оценка результата</h3>'+
-    '<p>После окончания акции загрузи продажи за её период — система покажет сколько продалось, и подскажет: сработала (повторить/держать) или нет (углубить/слить).</p>'+
+  '<div class="help-sec" id="h-promo"><h2>7. Наблюдение — скидки ставит 1С, программа следит</h2>'+
+    '<p>Акции и скидки заводятся <b>в 1С</b>, а не здесь. Поэтому программа не «создаёт акцию», а берёт позиции на карандаш: вы решаете, что уценить, отдаёте задание тем, кто работает в 1С, — а программа сама видит по данным, появилась ли скидка, и меряет отклик.</p>'+
+    '<h3>Как это устроено</h3>'+
+    '<div class="help-step"><div class="help-step-n">1</div><div class="help-step-b">На «Действиях» (или «Товарах») отметьте позиции галочками — можно из разных лотов — и нажмите <b>«В список наблюдения»</b>. Дайте списку имя и желаемую скидку.</div></div>'+
+    '<div class="help-step"><div class="help-step-n">2</div><div class="help-step-b">Кнопка <b>«Задание»</b> выгружает Excel: позиции, остатки, цены, склады, желаемая скидка. Передайте его тем, кто ставит скидки в 1С.</div></div>'+
+    '<div class="help-step"><div class="help-step-n">3</div><div class="help-step-b">Дальше ничего вводить не нужно. После «Обновить из 1С» по каждой позиции видно состояние: <b>ждём</b> (скидку ещё не поставили), <b>идёт</b> (какая и с какой недели), <b>снята</b>.</div></div>'+
+    '<div class="help-step"><div class="help-step-n">4</div><div class="help-step-b">Рядом — <b>отклик</b>: темп до скидки против темпа при ней. «Сработало», «Оживило», «Слабо», «Не помогло», «Выбрала спрос вперёд». Считается сам.</div></div>'+
+    '<h3>Откуда программа знает про скидку</h3>'+
+    '<p>1С присылает по каждой неделе две суммы: по прайсу и фактическую. Их разница — скидка, реально данная на кассе. Это надёжнее правил: правило может висеть в 1С, а скидку не давать, и наоборот. Ряд «неделя → скидка» виден в карточке любой позиции.</p>'+
+    '<div class="help-tip">💡 Список ничего не меняет в данных — это ваш «карандаш» и задание для 1С. Когда скидку снимут, позиция вернётся в рекомендации обычным порядком.</div>'+
   '</div>'+
 
   // 8. RECOS
@@ -4153,7 +4161,7 @@ function renderHelp(){
 
   // 11. FLOW
   '<div class="help-sec" id="h-flow"><h2>11. Шпаргалка: какое действие выбрать</h2>'+
-    '<div class="help-flow">Позиция не продаётся →\n\n  Совсем новая (меньше 4 недель)?\n     → ничего, пусть осваивается\n\n  Лежит 4+ недель, остаток БОЛЬШОЙ (>20 шт)?\n     → ВРЕМЕННАЯ АКЦИЯ (двигаем объём срочностью)\n\n  Лежит 4+ недель, остаток МАЛЕНЬКИЙ (≤20 шт)?\n     → ПОСТОЯННАЯ СКИДКА (закрываем хвост)\n\n  Совсем мало (≤5 шт) и мёртвый?\n     → СЛИВ\n\nСкидка/акция уже стоит →\n\n  Продажи пошли?  → держим, всё ок\n  Период оценки идёт? → ждём результат\n  Не помогло после оценки? → УГЛУБИТЬ\n  Углубили до −70%, всё мёртво? → СЛИВ</div>'+
+    '<div class="help-flow">Позиция не продаётся →\n\n  Совсем новая (меньше 4 недель)?\n     → ничего, пусть осваивается\n\n  Лежит 4+ недель, остаток БОЛЬШОЙ (>20 шт)?\n     → В СПИСОК НАБЛЮДЕНИЯ, задание в 1С на акцию\n\n  Лежит 4+ недель, остаток МАЛЕНЬКИЙ (≤20 шт)?\n     → задание в 1С на постоянную скидку\n\n  Совсем мало (≤5 шт) и мёртвый?\n     → СЛИВ (тоже через задание в 1С)\n\nСкидка в 1С уже стоит (видно по данным) →\n\n  Продажи пошли?  → держим, всё ок\n  Недель со скидкой мало? → ждём, отклик посчитается сам\n  «Не помогло»? → задание УГЛУБИТЬ\n  Углубили до −70%, всё мёртво? → СЛИВ</div>'+
   '</div>'+
 
   // 12. GLOSSARY
@@ -5385,7 +5393,7 @@ function watchSubmitNew(){
   var name=(document.getElementById('wl-name').value||'').trim();
   if(!name){err.textContent='Дайте списку название';return;}
   if(!_watchDraft||!_watchDraft.length){err.textContent='Позиции потерялись — отметьте заново';return;}
-  var disc=parseInt((document.getElementById('wl-disc').value||'').replace(/[^\d]/g,''),10)||0;
+  var disc=parseInt(String(document.getElementById('wl-disc').value||'').replace(/[^\d]/g,''),10)||0;
   var w={id:uid(),name:name,note:(document.getElementById('wl-note').value||'').trim(),
          targetDisc:disc,createdAt:new Date().toISOString().slice(0,10),
          items:_watchDraft};
@@ -7068,8 +7076,8 @@ function sandboxLoadFromBackup(){
 function sandboxClear(){
   if(!SANDBOX)return;
   if(!confirm('Очистить песочницу? Боевых данных это не касается.'))return;
-  lots=[];promos=[];
-  localStorage.setItem(LS_LOTS,'[]');localStorage.setItem(LS_PROMOS,'[]');
+  lots=[];promos=[];watch=[];
+  localStorage.setItem(LS_LOTS,'[]');localStorage.setItem(LS_PROMOS,'[]');localStorage.setItem(LS_WATCH,'[]');
   renderActivePage();updateRecosBadge();
 }
 
@@ -7079,7 +7087,7 @@ function downloadBackup(){
   var data={
     _format:'fbsm-lots-backup',_version:1,
     savedAt:new Date().toISOString(),
-    lots:lots,promos:promos,settings:CFG
+    lots:lots,promos:promos,watch:watch,settings:CFG
   };
   var blob=new Blob([JSON.stringify(data)],{type:'application/json'});
   var a=document.createElement('a');
@@ -7093,7 +7101,7 @@ function downloadBackup(){
 function autoSnapshot(reason){
   try{
     var snaps=JSON.parse(localStorage.getItem('fbsm_snapshots')||'[]');
-    snaps.unshift({at:new Date().toISOString(),reason:reason||'',lots:lots,promos:promos});
+    snaps.unshift({at:new Date().toISOString(),reason:reason||'',lots:lots,promos:promos,watch:watch});
     snaps=snaps.slice(0,3);
     localStorage.setItem('fbsm_snapshots',JSON.stringify(snaps));
   }catch(e){console.warn('снимок не сохранён (нет места)',e);}
@@ -7111,12 +7119,17 @@ function restoreBackupFile(e){
     if(!confirm(msg))return;
     autoSnapshot('перед восстановлением из копии');
     lots=data.lots;promos=data.promos||[];
+    // Списков наблюдения в старых копиях нет — тогда текущие не трогаем,
+    // иначе восстановление старого файла молча стёрло бы новые списки
+    if(Array.isArray(data.watch))watch=data.watch;
     if(data.settings)CFG=Object.assign({},DEF_CFG,data.settings);
     localStorage.setItem(LS_LOTS,JSON.stringify(lots));
     localStorage.setItem(LS_PROMOS,JSON.stringify(promos));
+    localStorage.setItem(LS_WATCH,JSON.stringify(watch));
     localStorage.setItem(SETTINGS_KEY,JSON.stringify(CFG));
     lots.forEach(function(l){sbUpsert('lots',l.id,l);});
     promos.forEach(function(p){sbUpsert('promos',p.id,p);});
+    watch.forEach(function(w){sbUpsert('watchlists',w.id,w);});
     alert('✓ Восстановлено: лотов '+lots.length+', акций '+promos.length+'.\nДанные выгружаются в облако.');
     renderActivePage();updateRecosBadge();
   };
@@ -7128,6 +7141,7 @@ async function forceSyncAll(){
   showSyncStatus('⟳ Выгрузка в облако...');
   lots.forEach(function(l){syncQueue['lots:'+l.id]={table:'lots',id:l.id,data:l,deleted:false};});
   promos.forEach(function(p){syncQueue['promos:'+p.id]={table:'promos',id:p.id,data:p,deleted:false};});
+  watch.forEach(function(w){syncQueue['watchlists:'+w.id]={table:'watchlists',id:w.id,data:w,deleted:false};});
   var total=syncPendingCount();
   var ok=await flushSyncQueue(true);
   if(ok)showSyncStatus('✓ Выгружено в облако: '+total,3000);
