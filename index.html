@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v100</title>
+<title>FBSM — Управление лотами v101</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v100</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v101</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -2373,6 +2373,24 @@ function whTitle(item){
     return 'Где лежит — появится после загрузки из 1С';
   var keys=Object.keys(wh).sort(function(a,b){return wh[b]-wh[a];});
   return 'Где лежит:\n'+keys.map(function(k){return '  '+k+': '+wh[k];}).join('\n');
+}
+// Для выгрузок: список складов, встреченных в наборе позиций, в порядке убывания
+// общего количества. Колонки строятся динамически — лишних пустых не будет.
+function whColumns(items){
+  var tot={};
+  (items||[]).forEach(function(it){
+    if(!it||!it.wh)return;
+    Object.keys(it.wh).forEach(function(k){tot[k]=(tot[k]||0)+it.wh[k];});
+  });
+  return Object.keys(tot).sort(function(a,b){return tot[b]-tot[a];});
+}
+// Значения по этим складам для одной позиции (пусто, а не ноль — чтобы в Excel
+// было видно «здесь этого товара нет», а не «ноль штук»)
+function whValues(item,cols){
+  return cols.map(function(k){
+    var v=item&&item.wh?item.wh[k]:0;
+    return v?v:'';
+  });
 }
 // Ячейка остатка с подсказкой по складам
 function qtyCell(item,cls,extra){
@@ -5484,17 +5502,23 @@ function watchRemoveItem(listId,itemId){
 // Задание для 1С: что и на сколько уценить
 function watchExport(id){
   var w=getWatch(id);if(!w)return;
+  // Склады отдельными колонками, а не строкой: по такому файлу задание можно
+  // разложить по точкам и посчитать итоги в самом Excel.
+  var live=(w.items||[]).map(function(e){var st=watchItemState(e);return st.gone?null:st.item;}).filter(Boolean);
+  var whCols=whColumns(live);
   var aoa=[['Список: '+w.name],['Цель: −'+w.targetDisc+'%'],[w.note||''],[],
-           ['Лот','Наименование','Остаток','Цена','Где лежит','Желаемая скидка %','Цена со скидкой']];
+           ['Лот','Наименование','Остаток','Цена','Желаемая скидка %','Цена со скидкой'].concat(whCols)];
   (w.items||[]).forEach(function(e){
     var st=watchItemState(e);
     if(st.gone)return;
     var d=e.wantDisc||w.targetDisc||0;
-    var wh=st.item.wh?Object.keys(st.item.wh).map(function(k){return k+': '+st.item.wh[k];}).join('; '):'';
-    aoa.push([e.lotName||'',e.name,st.remain,st.item.price||0,wh,d,Math.round((st.item.price||0)*(1-d/100))]);
+    aoa.push([e.lotName||'',e.name,st.remain,st.item.price||0,d,Math.round((st.item.price||0)*(1-d/100))]
+      .concat(whValues(st.item,whCols)));
   });
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:22},{wch:34},{wch:9},{wch:11},{wch:16},{wch:15}].concat(whCols.map(function(){return {wch:14};}));
   var wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),'Задание');
+  XLSX.utils.book_append_sheet(wb,ws,'Задание');
   XLSX.writeFile(wb,'Задание в 1С — '+w.name.replace(/[\\/:*?"<>|]/g,'')+'.xlsx');
 }
 function renderWatch(){
@@ -6073,17 +6097,19 @@ function exportGoodsToExcel(){
   var rows=goodsFiltered();
   if(!rows.length){alert('Нечего выгружать');return;}
   var sel=goodsSel.size?rows.filter(function(r){return goodsSel.has(r.lot.id+':'+r.item.id);}):rows;
-  var aoa=[['Наименование','Лот','Окупаемость лота %','Остаток','Цена','Себестоимость','Продано','Выручка','Ср/мес','Запас мес','Возраст нед','ABCD','Статус','Реком. скидка %','Цена со скидкой']];
+  var whCols=whColumns(sel.map(function(r){return r.item;}));
+  var aoa=[['Наименование','Лот','Окупаемость лота %','Остаток','Цена','Себестоимость','Продано','Выручка','Ср/мес','Запас мес','Возраст нед','ABCD','Статус','Реком. скидка %','Цена со скидкой'].concat(whCols)];
   var stName={sold:'распродано',promo:'в акции',liq:'слив',disc:'постоянная скидка',action:'требует действия',ok:'—'};
   sel.forEach(function(r){
     var it=r.item;
     aoa.push([it.name,r.lot.name,Math.round(r.m.recovery),Math.max(it.qty||0,0),it.price||0,Math.round(it.costPer||0),
       it.soldQty||0,Math.round(it.soldRev||0),it.soldQty>0?Number(it.avgPerMonth.toFixed(1)):'',
       (it.coverMonths!=null&&it.soldQty>0)?Number(it.coverMonths.toFixed(1)):'',it.weeksOnShelf||0,r.abcdAll,
-      stName[goodsState(r)]||'',(r.rec&&r.rec.disc)||0,(r.rec&&r.rec.discPrice)?Math.round(r.rec.discPrice):'']);
+      stName[goodsState(r)]||'',(r.rec&&r.rec.disc)||0,(r.rec&&r.rec.discPrice)?Math.round(r.rec.discPrice):''].concat(whValues(it,whCols)));
   });
   var ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:34},{wch:22},{wch:9},{wch:8},{wch:11},{wch:13},{wch:9},{wch:13},{wch:9},{wch:9},{wch:10},{wch:6},{wch:19},{wch:13},{wch:14}];
+  ws['!cols']=[{wch:34},{wch:22},{wch:9},{wch:8},{wch:11},{wch:13},{wch:9},{wch:13},{wch:9},{wch:9},{wch:10},{wch:6},{wch:19},{wch:13},{wch:14}]
+    .concat(whCols.map(function(){return {wch:14};}));
   var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Товары');
   XLSX.writeFile(wb,'FBSM_товары_'+new Date().toISOString().slice(0,10)+'.xlsx');
 }
@@ -6144,8 +6170,10 @@ function exportRecosToExcel(rows,sheetName,fileLabel,onlyKeys){
   if(!rows||!rows.length){alert('Список пуст');return;}
   var filtered=onlyKeys?rows.filter(function(row){return onlyKeys.has(row.lot.id+':'+row.item.id);}):rows;
   if(!filtered.length){alert('Не отмечено ни одной позиции');return;}
-  // Заголовки и строки
-  var aoa=[['Лот','Наименование','Остаток','Текущая цена','Себестоимость','Продано','Выручка','Реком. скидка %','Цена со скидкой','Запас (мес)']];
+  // Заголовки и строки. Остаток раскладываем по складам отдельными колонками:
+  // задание раздаётся по точкам, а общее число не говорит, куда идти.
+  var whCols=whColumns(filtered.map(function(r){return r.item;}));
+  var aoa=[['Лот','Наименование','Остаток','Текущая цена','Себестоимость','Продано','Выручка','Реком. скидка %','Цена со скидкой','Запас (мес)'].concat(whCols)];
   filtered.forEach(function(row){
     var it=row.item,rec=row.rec||{};
     aoa.push([
@@ -6159,10 +6187,11 @@ function exportRecosToExcel(rows,sheetName,fileLabel,onlyKeys){
       rec.disc||0,
       rec.discPrice?Math.round(rec.discPrice):'',
       (it.coverMonths!==null&&it.coverMonths!==undefined)?Number(it.coverMonths.toFixed(1)):''
-    ]);
+    ].concat(whValues(it,whCols)));
   });
   var ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:22},{wch:32},{wch:9},{wch:12},{wch:13},{wch:9},{wch:13},{wch:13},{wch:14},{wch:11}];
+  ws['!cols']=[{wch:22},{wch:32},{wch:9},{wch:12},{wch:13},{wch:9},{wch:13},{wch:13},{wch:14},{wch:11}]
+    .concat(whCols.map(function(){return {wch:14};}));
   var wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,sheetName.slice(0,31));
   var date=new Date().toISOString().slice(0,10);
