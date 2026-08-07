@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v99</title>
+<title>FBSM — Управление лотами v100</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v99</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v100</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -2365,6 +2365,34 @@ function showPromoHistoryPopup(e,itemId){
   setTimeout(function(){document.addEventListener('click',closePopup,{once:true});},50);
 }
 function closePopup(){var p=document.getElementById('active-popup');if(p)p.remove();}
+// Подсказка при наведении на остаток: где именно лежит товар.
+// Без неё приходилось идти сверять склады в 1С вручную.
+function whTitle(item){
+  var wh=item&&item.wh;
+  if(!wh||!Object.keys(wh).length)
+    return 'Где лежит — появится после загрузки из 1С';
+  var keys=Object.keys(wh).sort(function(a,b){return wh[b]-wh[a];});
+  return 'Где лежит:\n'+keys.map(function(k){return '  '+k+': '+wh[k];}).join('\n');
+}
+// Ячейка остатка с подсказкой по складам
+function qtyCell(item,cls,extra){
+  var q=Math.max(item.qty||0,0);
+  return '<td style="text-align:right'+(extra||'')+'" class="'+(cls||'mono')+
+    '" title="'+esc(whTitle(item))+'">'+q+
+    (item.wh&&Object.keys(item.wh).length>1?'<span style="font-size:8px;color:var(--text3)"> ⋯</span>':'')+'</td>';
+}
+// Открыть статистику позиции из любого места, не только из открытого лота
+function openItemStatsIn(lotId,itemId){
+  activeLotId=lotId;
+  openItemStats(itemId);
+}
+// Спарклайн + кнопка подробной статистики — одинаково во всех таблицах
+function chartCell(lotId,item){
+  var sp=getSparkline(item.weeks);
+  return '<td style="text-align:center;white-space:nowrap">'+
+    (sp?'<span class="spark" style="color:var(--accent)" title="Продажи по неделям">'+sp+'</span> ':'<span style="color:var(--text3);font-size:9px">—</span> ')+
+    '<button class="btn btn-ghost btn-sm" style="font-size:13px;padding:2px 6px" onclick="openItemStatsIn(\''+lotId+'\',\''+item.id+'\')" title="Продажи по неделям, скидки, где лежит">📈</button></td>';
+}
 function getSparkline(weeks){
   if(!weeks||!weeks.length)return'';
   var vals=weeks.map(function(w){return w.qty||0;});
@@ -3599,7 +3627,7 @@ function renderDetail(){
     tableRows+='<tr>'+
       '<td class="checkbox-cell"><input type="checkbox" class="row-check" data-id="'+item.id+'" data-idx="'+idx+'" '+checked+' onclick="onRowCheck(event,'+idx+')"></td>'+
       '<td style="max-width:200px"><div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(item.name)+'</div><div style="margin-top:2px">'+labels+'</div></td>'+
-      '<td style="text-align:right" class="mono'+(remain===0?' num-zero':'')+'">'+remain+'</td>'+
+      qtyCell(item,'mono'+(remain===0?' num-zero':''))+
       '<td style="text-align:right" class="mono">'+(item.price>0?fmt(item.price):'—')+'</td>'+
       '<td style="text-align:right;color:var(--text2)" class="mono">'+fmt(item.costPer)+'</td>'+
       '<td style="text-align:right" class="mono'+(item.soldQty===0?' num-zero':'')+'">'+(item.soldQty||0)+'</td>'+
@@ -5948,7 +5976,7 @@ function renderGoods(){
       '<td style="max-width:230px"><div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(it.name)+'</div><div style="margin-top:2px">'+getItemLabels(it)+'</div></td>'+
       '<td style="font-size:10px;max-width:120px"><span style="color:var(--accent);cursor:pointer;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="showLotInfo(\''+lot.id+'\',event)" title="Показать сведения о лоте">'+esc(lot.name)+'</span>'+
         '<span style="font-size:8px;color:'+lotColor+'">'+lotBadge+'</span></td>'+
-      '<td style="text-align:right" class="mono'+(rem===0?' num-zero':'')+'">'+rem+'</td>'+
+      qtyCell(it,'mono'+(rem===0?' num-zero':''))+
       '<td style="text-align:right" class="mono">'+(it.price>0?fmt(it.price):'—')+'</td>'+
       '<td style="text-align:right;color:var(--text2)" class="mono">'+fmt(it.costPer)+'</td>'+
       '<td style="text-align:right" class="mono'+((it.soldQty||0)===0?' num-zero':'')+'">'+(it.soldQty||0)+'</td>'+
@@ -5956,7 +5984,7 @@ function renderGoods(){
       '<td style="text-align:right" class="mono">'+(it.soldQty>0?fmtD(it.avgPerMonth):'—')+'</td>'+
       '<td style="text-align:right" class="'+getCoverClass(it.coverMonths)+' mono">'+(it.coverMonths!==null&&it.soldQty>0?fmtD(it.coverMonths)+'м':'—')+'</td>'+
       '<td style="text-align:center" class="'+getAgeClass(it.weeksOnShelf||0)+' mono">'+(it.weeksOnShelf||0)+'н</td>'+
-      '<td style="text-align:center"><span class="spark" style="color:var(--accent)">'+getSparkline(it.weeks)+'</span></td>'+
+      chartCell(lot.id,it)+
       '<td style="text-align:center"><span class="badge badge-'+r.abcdAll+'">'+r.abcdAll+'</span></td>'+
       '<td style="text-align:center;min-width:95px">'+(act||stateChip)+'</td>'+
       '</tr>';
@@ -6236,7 +6264,7 @@ function renderRecos(){
       html+='<tr><td><input type="checkbox" class="reco-promo-chk" data-key="'+key+'" data-idx="'+ri+'" '+(recosSelected.has(key)?'checked':'')+' onclick="recoChkClick('+ri+',this,event)"></td>'+
         '<td style="font-size:10px;color:var(--text3);max-width:150px"><span style="cursor:pointer;color:var(--accent);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="showLotInfo(\''+row.lot.id+'\',event)" title="Сведения о лоте">'+esc(row.lot.name)+'</span>'+lotStateBadge(row.lot)+'</td>'+
         '<td style="font-weight:500">'+esc(row.item.name)+'</td>'+
-        '<td class="mono">'+Math.max(row.item.qty||0,0)+'</td>'+
+        qtyCell(row.item)+
         '<td class="mono">'+fmt(row.item.price)+'</td>'+
         '<td><span style="background:var(--bg-orange);color:var(--orange);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--mono)">−'+row.rec.disc+'%</span></td>'+
         '<td style="font-size:10px;color:var(--text2);white-space:nowrap">'+est.days+' дн · ~'+est.willSell+' шт'+
@@ -6283,14 +6311,15 @@ function recoSection(title,rows,color,desc,actionFn,showCost){
   var html='<div style="background:var(--surface);border:1px solid '+color+';border-radius:8px;padding:12px;margin-bottom:12px">'+
     '<div style="font-size:12px;font-weight:600;color:'+color+';margin-bottom:2px">'+title+' ('+rows.length+')</div>'+
     '<div style="font-size:9px;color:var(--text3);margin-bottom:8px">'+desc+'</div>'+
-    '<div style="overflow-x:auto"><table><thead><tr><th>Лот</th><th>Наименование</th><th>Ост.</th><th>Цена</th>'+(showCost?'<th>Себест.</th>':'')+'<th>Действие</th></tr></thead><tbody>';
+    '<div style="overflow-x:auto"><table><thead><tr><th>Лот</th><th>Наименование</th><th>Ост.</th><th>Цена</th>'+(showCost?'<th>Себест.</th>':'')+'<th>График</th><th>Действие</th></tr></thead><tbody>';
   rows.forEach(function(row){
     html+='<tr>'+
       '<td style="font-size:10px;color:var(--text3);max-width:150px"><span style="cursor:pointer;color:var(--accent);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="showLotInfo(\''+row.lot.id+'\',event)" title="Сведения о лоте">'+esc(row.lot.name)+'</span>'+lotStateBadge(row.lot)+'</td>'+
       '<td style="font-weight:500">'+esc(row.item.name)+'</td>'+
-      '<td class="mono">'+Math.max(row.item.qty||0,0)+'</td>'+
+      qtyCell(row.item)+
       '<td class="mono">'+fmt(row.item.price)+'</td>'+
       (showCost?'<td class="mono" style="color:var(--text3)">'+fmt(row.item.costPer)+'</td>':'')+
+      chartCell(row.lot.id,row.item)+
       '<td>'+actionFn(row)+'</td></tr>';
   });
   html+='</tbody></table></div></div>';
@@ -6309,16 +6338,17 @@ function recoSectionChecks(title,rows,color,desc,kind,bulkLabel,bulkAction,showC
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap"><div style="font-size:12px;font-weight:600;color:'+color+'">'+title+' ('+rows.length+')</div>'+
     '<div style="margin-left:auto;display:flex;gap:6px">'+exportBtn+'<button class="btn '+(kind==='liq'?'btn-danger':'btn-primary')+' btn-sm" onclick="'+bulkAction+'">'+bulkLabel+' (<span id="'+cntId+'">0</span>)</button></div></div>'+
     '<div style="font-size:9px;color:var(--text3);margin-bottom:8px">'+desc+' · Shift — выделить диапазон · «В Excel» выгрузит отмеченные (или все)</div>'+
-    '<div style="overflow-x:auto"><table><thead><tr><th><input type="checkbox" onclick="recoSecToggleAll(\''+kind+'\',this)"></th><th>Лот</th><th>Наименование</th><th>Ост.</th><th>Цена</th>'+(showCost?'<th>Себест.</th>':'')+'<th>Действие</th></tr></thead><tbody>';
+    '<div style="overflow-x:auto"><table><thead><tr><th><input type="checkbox" onclick="recoSecToggleAll(\''+kind+'\',this)"></th><th>Лот</th><th>Наименование</th><th>Ост.</th><th>Цена</th>'+(showCost?'<th>Себест.</th>':'')+'<th>График</th><th>Действие</th></tr></thead><tbody>';
   rows.forEach(function(row,ri){
     var key=row.lot.id+':'+row.item.id;
     html+='<tr>'+
       '<td><input type="checkbox" class="reco-'+kind+'-chk" data-key="'+key+'" data-idx="'+ri+'" '+(sel.has(key)?'checked':'')+' onclick="recoSecChk(\''+kind+'\','+ri+',this,event)"></td>'+
       '<td style="font-size:10px;color:var(--text3);max-width:150px"><span style="cursor:pointer;color:var(--accent);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="showLotInfo(\''+row.lot.id+'\',event)" title="Сведения о лоте">'+esc(row.lot.name)+'</span>'+lotStateBadge(row.lot)+'</td>'+
       '<td style="font-weight:500">'+esc(row.item.name)+'</td>'+
-      '<td class="mono">'+Math.max(row.item.qty||0,0)+'</td>'+
+      qtyCell(row.item)+
       '<td class="mono">'+fmt(row.item.price)+'</td>'+
       (showCost?'<td class="mono" style="color:var(--text3)">'+fmt(row.item.costPer)+'</td>':'')+
+      chartCell(row.lot.id,row.item)+
       '<td>'+actionFn(row)+'</td></tr>';
   });
   html+='</tbody></table></div></div>';
