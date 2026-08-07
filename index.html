@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBSM — Управление лотами v98</title>
+<title>FBSM — Управление лотами v99</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Geologica:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <style>
@@ -173,7 +173,7 @@ tr:hover td{background:#1a2030}
 </div>
 <div id="app">
 <div class="hdr">
-  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v98</span></div>
+  <div class="logo">FBSM · LOTS <span style="font-size:9px;color:var(--accent);background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px;font-family:var(--mono)">v99</span></div>
   <div class="hdr-title">Управление лотами</div>
   <div id="sync-status" style="font-size:10px;color:var(--text3);margin-left:auto;margin-right:8px"></div>
   <div class="hdr-right">
@@ -1519,7 +1519,13 @@ function buildLotsFromBatch(lotDefs,groupedStock,prices,sales){
     def.groups.forEach(function(gname){
       var g=groupMap[gname];if(!g)return;
       g.items.forEach(function(it){
-        if(it.qty>0)stockMap[it.name]={name:it.name,char:'',key:it.name,qty:(stockMap[it.name]?stockMap[it.name].qty:0)+it.qty};
+        if(it.qty<=0)return;
+        var prev=stockMap[it.name];
+        // Склады домерживаем: лот может собираться из нескольких партий
+        var wh=(prev&&prev.wh)?prev.wh:{};
+        if(it.wh)Object.keys(it.wh).forEach(function(k){wh[k]=(wh[k]||0)+it.wh[k];});
+        stockMap[it.name]={name:it.name,char:'',key:it.name,qty:(prev?prev.qty:0)+it.qty,
+                           wh:Object.keys(wh).length?wh:null};
       });
     });
     var items=buildItems(stockMap,prices||{},sales||null,null);
@@ -4532,13 +4538,27 @@ function apiBuildPlan(data){
         if(np&&ex.price&&np!==ex.price)priceChanged++;
       } else added++;
     });
-    // Позиции лота, которых больше нет в остатках 1С — распроданы
-    var soldOut=(lot.items||[]).filter(function(i){
-      return (i.qty||0)>0 && stockMap[i.key||i.name]===undefined;
-    }).length;
-    lotPlans.push({lot:lot,group:g.group,matched:matched,added:added,soldOut:soldOut,
+    lotPlans.push({lot:lot,group:g.group,matched:matched,added:added,soldOut:0,
                    qtyChanged:qtyChanged,priceChanged:priceChanged,groupItems:g.items});
   });
+  // Распродано = имени больше нет в остатках СВОИХ партий лота. Проверять по всему
+  // складу 1С нельзя: одинаковое имя живёт в разных партиях, и остаток чужой партии
+  // маскировал бы распродажу своей (найдено на живых данных: SHORT (BLACK) в TOFFEE).
+  // Лот может состоять из нескольких партий — union имён, итог вешаем на первую запись.
+  (function(){
+    var namesByLot={},firstLp={};
+    lotPlans.forEach(function(lp){
+      var id=lp.lot.id;
+      if(!namesByLot[id]){namesByLot[id]={};firstLp[id]=lp;}
+      lp.groupItems.forEach(function(gi){namesByLot[id][gi.name]=true;});
+    });
+    Object.keys(namesByLot).forEach(function(id){
+      var lp=firstLp[id];
+      lp.soldOut=(lp.lot.items||[]).filter(function(i){
+        return (i.qty||0)>0 && !namesByLot[id][i.key||i.name];
+      }).length;
+    });
+  })();
   return {stockMap:stockMap,priceMap:priceMap,salesData:salesData,groups:groups,
           lotPlans:lotPlans,newGroups:newGroups,negatives:negatives,
           salesUsable:salesUsable,syncedDays:syncedDays,
@@ -4556,18 +4576,23 @@ function apiBuildPlan(data){
 function apiApplyPlan(plan){
   autoSnapshot('перед загрузкой данных из 1С');
   var updatedLots=0,updatedItems=0,addedItems=0,soldOutItems=0;
+  // Лот может состоять из нескольких партий 1С. Обновления идём по партиям,
+  // а «распродано» решаем потом по ОБЪЕДИНЕНИЮ имён всех партий лота:
+  // проверка по всему складу 1С маскировала распродажу, если то же имя
+  // лежало в чужой партии (найдено на живых данных: SHORT (BLACK) в TOFFEE).
+  var namesByLot={},lotById={};
   plan.lotPlans.forEach(function(lp){
     var l=lp.lot;
-    var groupStock={};
-    lp.groupItems.forEach(function(gi){groupStock[gi.name]={name:gi.name,char:'',key:gi.name,qty:gi.qty};});
+    if(!namesByLot[l.id]){namesByLot[l.id]={};lotById[l.id]=l;updatedLots++;}
     var existing={};(l.items||[]).forEach(function(i){existing[i.key||i.name]=i;});
-    // Обновляем и добавляем позиции этой партии
     lp.groupItems.forEach(function(gi){
+      namesByLot[l.id][gi.name]=true;
       var ex=existing[gi.name];
       var price=plan.priceMap[gi.name];
       var sal=plan.salesUsable?plan.salesData.sales[gi.name]:null;
       if(ex){
         ex.qty=gi.qty;
+        ex.wh=(gi.wh&&Object.keys(gi.wh).length)?gi.wh:null;   // где лежит — по своей партии
         if(price>0){
           if(ex.price>0){if(price>ex.price)ex.priceUp=true;else if(price<ex.price)ex.priceUp=false;}
           ex.price=price;ex.noPrice=false;
@@ -4575,28 +4600,29 @@ function apiApplyPlan(plan){
         if(sal){ex.weeks=mergeWeeks(ex.weeks,sal.weeks);recalcSoldFromWeeks(ex);}
         updatedItems++;
       } else {
-        var ni=buildItems({n:{name:gi.name,char:'',key:gi.name,qty:gi.qty}},plan.priceMap,null,null)[0];
+        var ni=buildItems({n:{name:gi.name,char:'',key:gi.name,qty:gi.qty,wh:gi.wh}},plan.priceMap,null,null)[0];
         ni.receivedDate=new Date().toISOString().slice(0,10);
         if(sal){ni.weeks=sal.weeks.slice();recalcSoldFromWeeks(ni);}
         l.items.push(ni);
         addedItems++;
       }
     });
-    // Позиции, пропавшие из остатков 1С, считаем распроданными
-    (l.items||[]).forEach(function(i){
-      var k=i.key||i.name;
-      if((i.qty||0)>0&&plan.stockMap[k]===undefined&&!groupStock[k]){
-        i.qty=0;soldOutItems++;
-      }
-    });
     if(!l.sourceGroups)l.sourceGroups=[];
     if(l.sourceGroups.indexOf(lp.group)<0)l.sourceGroups.push(lp.group);  // запомнить связь с партией 1С
+    if(plan.salesUsable&&plan.salesData.weeks.length)l.weeks=mergeWeekLabels(l.weeks,plan.salesData.weeks);
+  });
+  // Второй проход — по лотам целиком: распродажа и пересчёт
+  Object.keys(lotById).forEach(function(id){
+    var l=lotById[id],names=namesByLot[id];
+    (l.items||[]).forEach(function(i){
+      if((i.qty||0)>0&&!names[i.key||i.name]){
+        i.qty=0;i.wh=null;soldOutItems++;
+      }
+    });
     calcCosts(l.items,l.cost,l.totalUnits);
     enrichItems(l.items,l.date,l.secondSeason,sellByOf(l));
-    if(plan.salesUsable&&plan.salesData.weeks.length)l.weeks=mergeWeekLabels(l.weeks,plan.salesData.weeks);
     l.updatedAt=new Date().toISOString();
     sbUpsert('lots',l.id,l);
-    updatedLots++;
   });
   save();bumpDataVersion();
   logAction('load','Загрузка из 1С: обновлено лотов '+updatedLots+', позиций '+updatedItems+
@@ -5314,11 +5340,16 @@ function apiToGroups(catalog,stock){
     var g=c.group||'Без группы';
     if(!byGroup[g])byGroup[g]={group:g,path:c.groupPath||[],total:0,items:{}};
     byGroup[g].total+=qty;
-    byGroup[g].items[c.name]=(byGroup[g].items[c.name]||0)+qty;
+    if(!byGroup[g].items[c.name])byGroup[g].items[c.name]={qty:0,wh:{}};
+    byGroup[g].items[c.name].qty+=qty;
+    // Склады в разрезе СВОЕЙ партии: одинаковые имена живут в разных партиях,
+    // и глобальная разбивка смешала бы чужие склады
+    var wn=cleanCell(r.warehouse_name)||String(r.warehouse_id||'').slice(0,8)||'—';
+    byGroup[g].items[c.name].wh[wn]=(byGroup[g].items[c.name].wh[wn]||0)+qty;
   });
   return Object.keys(byGroup).map(function(g){
     var o=byGroup[g];
-    return {group:g,path:o.path,total:o.total,items:Object.keys(o.items).map(function(n){return {name:n,qty:o.items[n]};})};
+    return {group:g,path:o.path,total:o.total,items:Object.keys(o.items).map(function(n){return {name:n,qty:o.items[n].qty,wh:o.items[n].wh};})};
   });
 }
 
